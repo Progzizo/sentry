@@ -1210,6 +1210,8 @@ class CountColumn(FunctionArg):
 
 class NumericColumn(FunctionArg):
     def normalize(self, value):
+        if value.startswith("metrics."):
+            return value
         snuba_column = SEARCH_MAP.get(value)
         if not snuba_column:
             raise InvalidFunctionArgument(u"{} is not a valid column".format(value))
@@ -1226,6 +1228,8 @@ class NumericColumnNoLookup(NumericColumn):
 
 class DurationColumn(FunctionArg):
     def normalize(self, value):
+        if value.startswith("metrics."):
+            return value
         snuba_column = SEARCH_MAP.get(value)
         if not snuba_column:
             raise InvalidFunctionArgument(u"{} is not a valid column".format(value))
@@ -1651,6 +1655,11 @@ def resolve_field_list(fields, snuba_filter, auto_fields=True):
         if agg_additions:
             aggregations.extend(agg_additions)
 
+    # Hack for metrics
+    for i, column in enumerate(columns):
+        if not isinstance(column, (list, tuple)) and column.startswith("metrics."):
+            columns.append(["toInt32OrNull", [column], "`{}`".format(column)])
+
     rollup = snuba_filter.rollup
     if not rollup and auto_fields:
         # Ensure fields we require to build a functioning interface
@@ -1703,12 +1712,15 @@ def resolve_field_list(fields, snuba_filter, auto_fields=True):
     if aggregations:
         for column in columns:
             if isinstance(column, (list, tuple)):
-                if column[0] == "transform":
+                if column[0] == "transform" or column[0] == "toInt32OrNull":
                     # When there's a project transform, we already group by project_id
                     continue
                 groupby.append(column[2])
             else:
-                groupby.append(column)
+                if column.startswith("metrics."):
+                    groupby.append("tags[{}]".format(column))
+                else:
+                    groupby.append(column)
 
     return {
         "selected_columns": columns,
