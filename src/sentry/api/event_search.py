@@ -895,6 +895,23 @@ def format_search_filter(term, params):
         )
         if converted_filter:
             conditions.append(converted_filter)
+    elif name.startswith("metrics."):
+        converted_filter = convert_search_filter_to_snuba_query(term)
+        if converted_filter:
+            if (
+                len(converted_filter) == 3
+                and converted_filter[1] == "="
+                and len(converted_filter[2])
+            ):
+                if converted_filter[2][:2] in {"<=", ">="}:
+                    converted_filter[0] = ["toFloat32OrNull", [converted_filter[0]]]
+                    converted_filter[1] = converted_filter[2][0]
+                    converted_filter[2] = float(converted_filter[2][2:])
+                elif converted_filter[2][0] in {"=", "<", ">"}:
+                    converted_filter[0] = ["toFloat32OrNull", [converted_filter[0]]]
+                    converted_filter[1] = converted_filter[2][0]
+                    converted_filter[2] = float(converted_filter[2][1:])
+            conditions.append(converted_filter)
     else:
         converted_filter = convert_search_filter_to_snuba_query(term)
         if converted_filter:
