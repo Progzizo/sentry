@@ -1480,6 +1480,8 @@ def format_column_arguments(column, arguments):
             format_column_arguments(args[i], arguments)
         elif isinstance(args[i], six.string_types):
             args[i] = args[i].format(**arguments)
+            if args[i].startswith("metrics."):
+                args[i] = ["toFloat32OrNull", [args[i]]]
         elif isinstance(args[i], ArgValue):
             args[i] = arguments[args[i].arg]
 
