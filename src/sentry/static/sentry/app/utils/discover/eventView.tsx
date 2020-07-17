@@ -551,6 +551,10 @@ class EventView {
     return this.fields.some(field => isAggregateField(field.field));
   }
 
+  getMetricFields(): Field[] {
+    return this.fields.filter(field => field.field.startsWith('metrics.'));
+  }
+
   numOfColumns(): number {
     return this.fields.length;
   }
@@ -985,6 +989,16 @@ class EventView {
   }
 
   getYAxisOptions(): SelectValue<string>[] {
+    if (this.getDisplayMode() === DisplayModes.HISTOGRAM) {
+      return uniqBy(
+        this.getMetricFields().map((field: Field) => ({
+          label: field.field,
+          value: field.field,
+        })),
+        'value'
+      );
+    }
+
     // Make option set and add the default options in.
     return uniqBy(
       this.getAggregateFields()
@@ -1031,6 +1045,10 @@ class EventView {
 
       if (item.value === DisplayModes.TOP5 || item.value === DisplayModes.DAILYTOP5) {
         if (this.getAggregateFields().length === 0) {
+          return {...item, disabled: true};
+        }
+      } else if (item.value === DisplayModes.HISTOGRAM) {
+        if (this.getMetricFields().length === 0) {
           return {...item, disabled: true};
         }
       }
