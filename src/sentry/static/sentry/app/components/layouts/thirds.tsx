@@ -76,6 +76,8 @@ export const Title = styled('h2')`
   }
 `;
 
+export const HeaderNavTabs = styled('div')``;
+
 /**
  * Header container for header content and header actions.
  *
@@ -85,8 +87,8 @@ export const Title = styled('h2')`
  */
 export const Header = styled('div')`
   display: flex;
-  flex-direction: row;
   flex-grow: 0;
+  flex-flow: row wrap;
   justify-content: space-between;
   padding: ${space(2)} ${space(4)} 0 ${space(4)};
   margin: 0;

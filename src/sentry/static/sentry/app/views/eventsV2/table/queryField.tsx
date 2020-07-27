@@ -233,6 +233,7 @@ class QueryField extends React.Component<Props> {
 
                   return param.columnTypes.includes(value.meta.dataType);
                 }
+                return false;
               }),
             };
           }
