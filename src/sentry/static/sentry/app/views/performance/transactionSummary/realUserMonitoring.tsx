@@ -82,7 +82,8 @@ class RealUserMonitoring extends React.Component<Props> {
           <Layout.Side>more stuff on the side</Layout.Side>
           <Layout.Main fullWidth>
             <Panel>
-              {['fcp', 'lcp', 'fid', 'tti'].map(metric => (
+              {/* no tti here because perfume doesnt report it */}
+              {['fcp', 'lcp', 'fid', 'tbt'].map(metric => (
                 <MetricCard
                   key={metric}
                   metric={metric as WEB_VITAL_METRICS}
@@ -99,13 +100,14 @@ class RealUserMonitoring extends React.Component<Props> {
   }
 }
 
-type WEB_VITAL_METRICS = 'fcp' | 'lcp' | 'fid' | 'tti';
+type WEB_VITAL_METRICS = 'fcp' | 'lcp' | 'fid' | 'tti' | 'tbt';
 
 const METRIC_LONG_NAME: Record<WEB_VITAL_METRICS, string> = {
   fcp: t('First Contentful Paint (FCP)'),
   lcp: t('Largest Contentful Paint (LCP)'),
   fid: t('First Input Delay (FID)'),
   tti: t('Time To Interactive (TTI)'),
+  tbt: t('Total Blocking Time (TBT)'),
 };
 
 const METRIC_DESCRIPTION: Record<WEB_VITAL_METRICS, string> = {
@@ -119,6 +121,9 @@ const METRIC_DESCRIPTION: Record<WEB_VITAL_METRICS, string> = {
     "Must go faster. You're a very talented young man, with your own clever thoughts."
   ),
   tti: t(
+    "Must go faster. You're a very talented young man, with your own clever thoughts."
+  ),
+  tbt: t(
     "Must go faster. You're a very talented young man, with your own clever thoughts."
   ),
 };
@@ -149,8 +154,8 @@ class _MetricCard extends React.Component<MetricProps> {
   }
 
   renderMetricGraph() {
-    const {api, router, organization, query} = this.props;
-    const name = 'metrics.snuba_query';
+    const {api, router, metric, organization, query} = this.props;
+    const name = `metrics.${metric}`;
     return (
       <CardGraph>
         <EventsChart
