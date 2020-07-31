@@ -980,12 +980,22 @@ def resolve_snuba_aliases(snuba_filter, resolve_func, function_translations=None
                         found = True
                         continue
                 if not found:
-                    aggregation[
-                        0
-                    ] += "(toFloat32OrNull(tags.value[indexOf(tags.key, '{}')]))".format(
-                        aggregation[1]
-                    )
-                    aggregation[1] = None
+                    '''
+                    In snuba we have to update the following line in snuba/utils.py
+                    SAFE_FUNCTION_RE = re.compile(r"(-?[a-zA-Z_][a-zA-Z0-9_]*$|quantile\(0\.[0-9]+\))")
+                    '''
+                    aggregation[1] = [
+                        [
+                            "toFloat32OrNull", 
+                            [
+                                "arrayElement",
+                                [
+                                    "tags.value",
+                                    "indexOf", ["tags.key", "'{}'".format(aggregation[1])]
+                                ]
+                            ]
+                        ]
+                    ]
             else:
                 aggregation[1] = resolve_func(aggregation[1])
         elif isinstance(aggregation[1], (set, tuple, list)):
