@@ -609,6 +609,8 @@ def bulk_raw_query(snuba_param_list, referrer=None):
                     span.set_tag("referrer", referrer)
                     for param_key, param_data in six.iteritems(query_params):
                         span.set_data(param_key, param_data)
+                    print('referrer', referrer)
+                    print(body)
                     return (
                         _snuba_pool.urlopen("POST", "/query", body=body, headers=headers),
                         forward,
@@ -924,14 +926,20 @@ def _aliased_query_impl(
 # TODO (evanh) Since we are assuming that all string values are columns,
 # this will get tricky if we ever have complex columns where there are
 # string arguments to the functions that aren't columns
-def resolve_complex_column(col, resolve_func):
+def resolve_complex_column(col, resolve_func, derived_columns):
     args = col[1]
 
-    for i in range(len(args)):
+    i = 0
+    while i < len(args):
         if isinstance(args[i], (list, tuple)):
-            resolve_complex_column(args[i], resolve_func)
+            resolve_complex_column(args[i], resolve_func, derived_columns)
         elif isinstance(args[i], six.string_types):
-            args[i] = resolve_func(args[i])
+            if i < len(args) - 1 and isinstance(args[i + 1], (list, tuple)):
+                resolve_complex_column(args[i:i + 2], resolve_func, derived_columns)
+                i += 1
+            elif args[i] not in derived_columns:
+                args[i] = resolve_func(args[i])
+        i += 1
 
 
 def resolve_snuba_aliases(snuba_filter, resolve_func, function_translations=None):
@@ -950,7 +958,7 @@ def resolve_snuba_aliases(snuba_filter, resolve_func, function_translations=None
                 if len(col) == 3 and (col[0] == "transform" or col[0] == "toFloat32OrNull"):
                     # Add the name from the project transform, and remove the backticks so its not treated as a new col
                     derived_columns.add(col[2].strip("`"))
-                resolve_complex_column(col, resolve_func)
+                resolve_complex_column(col, resolve_func, derived_columns)
             else:
                 name = resolve_func(col)
                 selected_columns[idx] = name

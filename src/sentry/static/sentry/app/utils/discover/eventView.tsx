@@ -352,7 +352,6 @@ class EventView {
       end: saved.end,
       statsPeriod: saved.range,
     });
-
     return new EventView({
       id: saved.id,
       name: saved.name,

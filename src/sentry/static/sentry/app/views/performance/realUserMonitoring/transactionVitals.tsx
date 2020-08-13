@@ -15,7 +15,7 @@ import EventView from 'app/utils/discover/eventView';
 import {getDuration} from 'app/utils/formatters';
 import theme from 'app/utils/theme';
 
-const NUM_BUCKETS = 50;
+const NUM_BUCKETS = 25;
 const PERCENTILE = 0.75;
 const QUERY_KEYS = [
   'environment',
@@ -42,35 +42,35 @@ type Props = AsyncComponent['props'] &
     location: Location;
   };
 
-type StatsApiResultFCP = {
-  histogram_metrics_fcp_50: number;
-  count: number;
-};
-
-type StatsApiResultLCP = {
-  histogram_metrics_lcp_50: number;
-  count: number;
-};
-
-type StatsApiResultFID = {
-  histogram_metrics_fid_50: number;
-  count: number;
-};
-
-// type StatsApiResultTTI = {
-//   histogram_metrics_tti_50: number;
+// type StatsApiResultFCP = {
+//   histogram_metrics_fcp_50: number;
 //   count: number;
 // };
-
-type StatsApiResultTBT = {
-  histogram_metrics_tbt_50: number;
-  count: number;
-};
-
-type StatsApiResult = {
-  histogram: number;
-  count: number;
-};
+//
+// type StatsApiResultLCP = {
+//   histogram_metrics_lcp_50: number;
+//   count: number;
+// };
+//
+// type StatsApiResultFID = {
+//   histogram_metrics_fid_50: number;
+//   count: number;
+// };
+//
+// // type StatsApiResultTTI = {
+// //   histogram_metrics_tti_50: number;
+// //   count: number;
+// // };
+//
+// type StatsApiResultTBT = {
+//   histogram_metrics_tbt_50: number;
+//   count: number;
+// };
+//
+// type StatsApiResult = {
+//   histogram: number;
+//   count: number;
+// };
 
 type SummaryApiResult = {
   percentile_metrics_fcp_0_75: number;
@@ -81,11 +81,11 @@ type SummaryApiResult = {
 };
 
 type State = AsyncComponent['state'] & {
-  fcp: {data: StatsApiResultFCP[]} | null;
-  lcp: {data: StatsApiResultLCP[]} | null;
-  fid: {data: StatsApiResultFID[]} | null;
-  // tti: {data: StatsApiResultTTI[]} | null;
-  tbt: {data: StatsApiResultTBT[]} | null;
+  // fcp: {data: StatsApiResultFCP[]} | null;
+  // lcp: {data: StatsApiResultLCP[]} | null;
+  // fid: {data: StatsApiResultFID[]} | null;
+  // // tti: {data: StatsApiResultTTI[]} | null;
+  // tbt: {data: StatsApiResultTBT[]} | null;
   summary: {data: [SummaryApiResult]} | null;
 };
 
@@ -104,34 +104,29 @@ class TransactionVitals extends AsyncComponent<Props, State> {
       location,
     } = this.props;
 
-    // Ideally, we'd get the 4 histograms in a single query.
-    // And if it's possible, we should align their x-axes.
-    const endpoints = Object.values(WebVital).map(vital => {
-      const eventView = EventView.fromSavedQuery({
-        id: '',
-        name: '',
-        version: 2,
-        fields: [`histogram(metrics.${vital},${NUM_BUCKETS})`, 'count()'],
-        orderby: `histogram_metrics_${vital}_${NUM_BUCKETS}`,
-        projects: project,
-        range: statsPeriod,
-        query,
-        environment,
-        start,
-        end,
-      });
+    const vitals = Object.values(WebVital).map(vital => `metrics.${vital}`);
 
-      const apiPayload = eventView.getEventsAPIPayload(location);
-      apiPayload.referrer = `api.performance.webvitals.${vital}`;
+    const vitals_key = vitals.join('_').replace(/\./g, '_');
+    const orderby = `multihistogram_${vitals_key}_${NUM_BUCKETS}`;
 
-      return [
-        vital,
-        `/organizations/${organization.slug}/eventsv2/`,
-        {query: apiPayload},
-      ];
-    }) as Endpoints;
+    const eventViewHistograms = EventView.fromSavedQuery({
+      id: '',
+      name: '',
+      version: 2,
+      fields: [`multihistogram(${vitals.join(', ')}, ${NUM_BUCKETS})`, 'count()'],
+      orderby,
+      projects: project,
+      range: statsPeriod,
+      query,
+      environment,
+      start,
+      end,
+    });
 
-    const eventView = EventView.fromSavedQuery({
+    const histogramsApiPayload = eventViewHistograms.getEventsAPIPayload(location);
+    histogramsApiPayload.referrer = `api.performance.webvitals.histograms`;
+
+    const eventViewSummary = EventView.fromSavedQuery({
       id: '',
       name: '',
       version: 2,
@@ -146,16 +141,21 @@ class TransactionVitals extends AsyncComponent<Props, State> {
       end,
     });
 
-    const apiPayload = eventView.getEventsAPIPayload(location);
-    apiPayload.referrer = `api.performance.webvitals.summary`;
+    const summaryApiPayload = eventViewSummary.getEventsAPIPayload(location);
+    summaryApiPayload.referrer = `api.performance.webvitals.summary`;
 
-    endpoints.push([
-      'summary',
-      `/organizations/${organization.slug}/eventsv2/`,
-      {query: apiPayload},
-    ]);
-
-    return endpoints;
+    return [
+      [
+        'histograms',
+        `/organizations/${organization.slug}/eventsv2/`,
+        {query: histogramsApiPayload},
+      ],
+      [
+        'summary',
+        `/organizations/${organization.slug}/eventsv2/`,
+        {query: summaryApiPayload},
+      ],
+    ];
   }
 
   componentDidUpdate(prevProps: Props) {
@@ -177,7 +177,7 @@ class TransactionVitals extends AsyncComponent<Props, State> {
     return (
       <React.Fragment>
         {Object.values(WebVital).map((vital, index) => {
-          const data = this.getFormattedData(vital);
+          const data = []; // this.getFormattedData(vital);
           const summary = this.getFormattedSummary(vital);
           return (
             <VitalCard
@@ -195,38 +195,38 @@ class TransactionVitals extends AsyncComponent<Props, State> {
     );
   }
 
-  getFormattedData(vital: WebVital): StatsApiResult[] {
-    const chartData = this.state[vital]?.data ?? [];
-    switch (vital) {
-      case WebVital.FCP:
-        return ((chartData as unknown) as StatsApiResultFCP[]).map(result => ({
-          histogram: result[`histogram_metrics_fcp_${NUM_BUCKETS}`],
-          count: result.count,
-        }));
-      case WebVital.LCP:
-        return ((chartData as unknown) as StatsApiResultLCP[]).map(result => ({
-          histogram: result[`histogram_metrics_lcp_${NUM_BUCKETS}`],
-          count: result.count,
-        }));
-      case WebVital.FID:
-        return ((chartData as unknown) as StatsApiResultFID[]).map(result => ({
-          histogram: result[`histogram_metrics_fid_${NUM_BUCKETS}`],
-          count: result.count,
-        }));
-      // case WebVital.TTI:
-      //   return ((chartData as unknown) as StatsApiResultTTI[]).map(result => ({
-      //     histogram: result[`histogram_metrics_tti_${NUM_BUCKETS}`],
-      //     count: result.count,
-      //   }));
-      case WebVital.TBT:
-        return ((chartData as unknown) as StatsApiResultTBT[]).map(result => ({
-          histogram: result[`histogram_metrics_tbt_${NUM_BUCKETS}`],
-          count: result.count,
-        }));
-      default:
-        throw new Error('Unexpected Web Vital Type');
-    }
-  }
+  // getFormattedData(vital: WebVital): StatsApiResult[] {
+  //   const chartData = this.state[vital]?.data ?? [];
+  //   switch (vital) {
+  //     case WebVital.FCP:
+  //       return ((chartData as unknown) as StatsApiResultFCP[]).map(result => ({
+  //         histogram: result[`histogram_metrics_fcp_${NUM_BUCKETS}`],
+  //         count: result.count,
+  //       }));
+  //     case WebVital.LCP:
+  //       return ((chartData as unknown) as StatsApiResultLCP[]).map(result => ({
+  //         histogram: result[`histogram_metrics_lcp_${NUM_BUCKETS}`],
+  //         count: result.count,
+  //       }));
+  //     case WebVital.FID:
+  //       return ((chartData as unknown) as StatsApiResultFID[]).map(result => ({
+  //         histogram: result[`histogram_metrics_fid_${NUM_BUCKETS}`],
+  //         count: result.count,
+  //       }));
+  //     // case WebVital.TTI:
+  //     //   return ((chartData as unknown) as StatsApiResultTTI[]).map(result => ({
+  //     //     histogram: result[`histogram_metrics_tti_${NUM_BUCKETS}`],
+  //     //     count: result.count,
+  //     //   }));
+  //     case WebVital.TBT:
+  //       return ((chartData as unknown) as StatsApiResultTBT[]).map(result => ({
+  //         histogram: result[`histogram_metrics_tbt_${NUM_BUCKETS}`],
+  //         count: result.count,
+  //       }));
+  //     default:
+  //       throw new Error('Unexpected Web Vital Type');
+  //   }
+  // }
 
   getFormattedSummary(vital: WebVital): string | null {
     const summary = this.state.summary?.data[0] ?? null;
@@ -304,7 +304,7 @@ type VitalProps = {
   error: boolean;
   vital: WebVital;
   summary: string | null;
-  chartData: StatsApiResult[];
+  // chartData: StatsApiResult[];
   colors: [string]; // i have no idea what the type here should be...
 };
 
@@ -322,60 +322,61 @@ class VitalCard extends React.Component<VitalProps> {
   }
 
   renderHistogram() {
-    const {chartData, colors} = this.props;
-    console.log(colors);
+    return null;
 
-    const xAxis = {
-      type: 'category',
-      truncate: true,
-      axisLabel: {
-        margin: 20,
-      },
-      axisTick: {
-        interval: 0,
-        alignWithLabel: true,
-      },
-    };
+    // const {chartData, colors} = this.props;
 
-    const tooltip = {
-      formatter(series) {
-        const seriesData = Array.isArray(series) ? series : [series];
-        let contents: string[] = [];
-        // if (!zoomError) {
-        // Replicate the necessary logic from app/components/charts/components/tooltip.jsx
-        contents = seriesData.map(item => {
-          const label = item.seriesName;
-          const value = item.value[1].toLocaleString();
-          return [
-            '<div class="tooltip-series">',
-            `<div><span class="tooltip-label">${item.marker} <strong>${label}</strong></span> ${value}</div>`,
-            '</div>',
-          ].join('');
-        });
-        const seriesLabel = seriesData[0].value[0];
-        contents.push(`<div class="tooltip-date">${seriesLabel}</div>`);
-        // } else {
-        //   contents = [
-        //     '<div class="tooltip-series tooltip-series-solo">',
-        //     t('You cannot zoom in any further'),
-        //     '</div>',
-        //   ];
-        // }
-        contents.push('<div class="tooltip-arrow"></div>');
-        return contents.join('');
-      },
-    };
+    // const xAxis = {
+    //   type: 'category',
+    //   truncate: true,
+    //   axisLabel: {
+    //     margin: 20,
+    //   },
+    //   axisTick: {
+    //     interval: 0,
+    //     alignWithLabel: true,
+    //   },
+    // };
 
-    return (
-      <BarChart
-        grid={{left: '10px', right: '10px', top: '40px', bottom: '0px'}}
-        xAxis={xAxis}
-        yAxis={{type: 'value'}}
-        tooltip={tooltip}
-        color={colors}
-        series={transformData(chartData, NUM_BUCKETS)}
-      />
-    );
+    // const tooltip = {
+    //   formatter(series) {
+    //     const seriesData = Array.isArray(series) ? series : [series];
+    //     let contents: string[] = [];
+    //     // if (!zoomError) {
+    //     // Replicate the necessary logic from app/components/charts/components/tooltip.jsx
+    //     contents = seriesData.map(item => {
+    //       const label = item.seriesName;
+    //       const value = item.value[1].toLocaleString();
+    //       return [
+    //         '<div class="tooltip-series">',
+    //         `<div><span class="tooltip-label">${item.marker} <strong>${label}</strong></span> ${value}</div>`,
+    //         '</div>',
+    //       ].join('');
+    //     });
+    //     const seriesLabel = seriesData[0].value[0];
+    //     contents.push(`<div class="tooltip-date">${seriesLabel}</div>`);
+    //     // } else {
+    //     //   contents = [
+    //     //     '<div class="tooltip-series tooltip-series-solo">',
+    //     //     t('You cannot zoom in any further'),
+    //     //     '</div>',
+    //     //   ];
+    //     // }
+    //     contents.push('<div class="tooltip-arrow"></div>');
+    //     return contents.join('');
+    //   },
+    // };
+
+    // return (
+    //   <BarChart
+    //     grid={{left: '10px', right: '10px', top: '40px', bottom: '0px'}}
+    //     xAxis={xAxis}
+    //     yAxis={{type: 'value'}}
+    //     tooltip={tooltip}
+    //     color={colors}
+    //     series={transformData(chartData, NUM_BUCKETS)}
+    //   />
+    // );
   }
 
   render() {
@@ -428,22 +429,22 @@ const Description = styled('p')`
   margin: ${space(1)} 0px;
 `;
 
-function transformData(data: StatsApiResult[], bucketWidth: number) {
-  const seriesData = data.map(item => {
-    const bucket = item.histogram;
-    const midPoint = bucketWidth > 1 ? Math.ceil(bucket + bucketWidth / 2) : bucket;
-    return {
-      value: item.count,
-      name: getDuration(midPoint / 1000, 2, true),
-    };
-  });
-
-  return [
-    {
-      seriesName: t('Count'),
-      data: seriesData,
-    },
-  ];
-}
+// function transformData(data: StatsApiResult[], bucketWidth: number) {
+//   const seriesData = data.map(item => {
+//     const bucket = item.histogram;
+//     const midPoint = bucketWidth > 1 ? Math.ceil(bucket + bucketWidth / 2) : bucket;
+//     return {
+//       value: item.count,
+//       name: getDuration(midPoint / 1000, 2, true),
+//     };
+//   });
+//
+//   return [
+//     {
+//       seriesName: t('Count'),
+//       data: seriesData,
+//     },
+//   ];
+// }
 
 export default TransactionVitals;

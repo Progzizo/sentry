@@ -232,6 +232,156 @@ def find_histogram_buckets(field, params, conditions):
     return "histogram({}, {:g}, {:.0f}, {:.0f})".format(column, num_buckets, bucket_size, offset)
 
 
+def find_multi_histogram_buckets(field, params, conditions):
+    '''
+    This function is based on `find_histogram_buckets`. It uses the min/max values
+    to calculate the width of a bucket.
+
+    NOTE: This function only supports measurements. Any other columns will not work.
+    '''
+    match = is_function(field)
+    if not match:
+        raise InvalidSearchQuery(u"received {}, expected histogram function".format(field))
+
+    columns = [c.strip() for c in match.group("columns").split(",") if len(c.strip()) > 0]
+
+    if len(columns) < 2:
+        raise InvalidSearchQuery(
+            u"multiHistogram(...) expects at least 2 column arguments, received {:g} arguments".format(
+                len(columns)
+            )
+        )
+
+    for column in columns[:-1]:
+        # TODO(tonyx): this should be renamed to match the final implementation
+        if not column.startswith("metrics."):
+            raise InvalidSearchQuery(
+                u"multiHistogram(...) can only be used with measurements"
+            )
+
+    try:
+        num_buckets = int(columns[-1])
+        if num_buckets < 1 or num_buckets > 500:
+            raise Exception()
+    except Exception:
+        raise InvalidSearchQuery(
+            u"multiHistogram(...) requires a bucket value between 1 and 500, not {}".format(columns[-1])
+        )
+
+    function_alias = "_".join(columns[:-1]).replace(".", "_")
+    measure_alias = u"key_{}".format(function_alias)
+    max_alias = u"max_{}".format(function_alias)
+    min_alias = u"min_{}".format(function_alias)
+
+    conditions = deepcopy(conditions) if conditions else []
+    for cond in conditions:
+        if len(cond) == 3 and (cond[0], cond[1], cond[2]) == ("event.type", "=", "transaction"):
+            break
+    else:
+        conditions.append(["event.type", "=", "transaction"])
+    snuba_filter = eventstore.Filter(conditions=conditions)
+    translated_args, _ = resolve_discover_aliases(snuba_filter)
+    formated_cols = ["'{}'".format(col) for col in columns[:-1]]
+
+    selected_columns = [
+        [
+            "arrayJoin",
+            [
+                "arrayFilter",
+                [
+                    "lambda",
+                    [
+                        "tuple", ["key"],
+                        "in", ["key", "tuple", formated_cols],
+                    ],
+                    # TODO(tonyx): use the final measures column
+                    "tags.key",
+                ],
+            ],
+            measure_alias,
+        ],
+    ]
+    # TODO(tonyx): remove the toFloat32OrNull and use the final measures column
+    aggregations = [
+        [
+            "max",
+            [
+                [
+                    "toFloat32OrNull",
+                    [
+                        "arrayElement",
+                        [
+                            "tags.value",
+                            "indexOf", ["tags.key", measure_alias],
+                        ],
+                    ],
+                ],
+            ],
+            max_alias,
+        ],
+        [
+            "min",
+            [
+                [
+                    "toFloat32OrNull",
+                    [
+                        "arrayElement",
+                        [
+                            "tags.value",
+                            "indexOf", ["tags.key", measure_alias],
+                        ],
+                    ],
+                ],
+            ],
+            min_alias,
+        ]
+    ]
+
+    results = raw_query(
+        selected_columns=selected_columns,
+        filter_keys={"project_id": params.get("project_id")},
+        start=params.get("start"),
+        end=params.get("end"),
+        dataset=Dataset.Discover,
+        conditions=translated_args.conditions,
+        aggregations=aggregations,
+        groupby=[
+            measure_alias,
+        ],
+    )
+
+    if len(results["data"]) == 0:
+        # If there are no measurements, so no max duration, return one empty bucket
+        # return "histogram({}, 1, 1, 0)".format(column)
+        pass
+
+    bucket_min, bucket_max = float("inf"), -float("inf")
+    for data in results["data"]:
+        if data[max_alias] > bucket_max:
+            bucket_max = data[max_alias]
+        if data[min_alias] < bucket_min:
+            bucket_min = data[min_alias]
+
+    bucket_size = ceil((bucket_max - bucket_min) / float(num_buckets))
+    if bucket_size == 0.0:
+        bucket_size = 1.0
+
+    # Determine the first bucket that will show up in our results so that we can
+    # zerofill correctly.
+    offset = int(floor(bucket_min / bucket_size) * bucket_size)
+
+    array_join_str_literals_column = "array_join_str_literals({})".format(", ".join(columns[:-1]))
+    multihistogram_column = "multihistogram({:g}, {:.0f}, {:.0f}, {})".format(
+        num_buckets, bucket_size, offset, get_function_alias(array_join_str_literals_column)
+    )
+    return (
+        array_join_str_literals_column,
+        multihistogram_column
+    )
+
+    # return "multihistogram({:g}, {:.0f}, {:.0f}, {})".format(num_buckets, bucket_size, offset, ", ".join(columns[:-1]))
+
+
 def zerofill_histogram(results, column_meta, orderby, sentry_function_alias, snuba_function_alias):
     parts = snuba_function_alias.split("_")
     # the histogram alias looks like `histogram_column_numbuckets_bucketsize_bucketoffest`
@@ -282,6 +432,16 @@ def zerofill_histogram(results, column_meta, orderby, sentry_function_alias, snu
                 new_results.append(bucket_map[bucket])
 
     return new_results
+
+
+def flatten_and_zerofill_multihistogram(results, column_meta, sentry_function_alias, snuba_function_alias):
+    parts = snuba_function_alias.split("_")
+    if len(parts) < 5:
+        raise Exception(u"{} is not a valid histogram alias".format(snuba_function_alias))
+
+    num_buckets, bucket_size, bucket_offset = int(parts[1]), int(parts[2]), int(parts[3])
+
+    return column_meta, results
 
 
 def resolve_discover_aliases(snuba_filter, function_translations=None):
@@ -380,6 +540,20 @@ def transform_results(result, translated_columns, snuba_filter, selected_columns
                         )
             break
 
+        if col["name"].startswith("multihistogram"):
+            for snuba_name, sentry_name in six.iteritems(translated_columns):
+                if sentry_name == col["name"]:
+                    with sentry_sdk.start_span(
+                        op="discover.discover", description="transform_results.multihistogram_flatten",
+                    ) as span:
+                        span.set_data("multihistogram_function", snuba_name)
+                        result["meta"], result["data"] = flatten_and_zerofill_multihistogram(
+                            result["data"],
+                            result["meta"],
+                            sentry_name,
+                            snuba_name,
+                        )
+
     return result
 
 
@@ -463,6 +637,27 @@ def query(
 
             break
 
+        # TODO(tonyx): needs a better name as it only supports measurements
+        if col.startswith("multihistogram("):
+            with sentry_sdk.start_span(
+                op="discover.discover", description="query.multihistogram_calculation"
+            ) as span:
+                span.set_data("multihistogram", col)
+                function_alias = get_function_alias(col)
+
+                if len(orderby) != 1 or function_alias != orderby[0]:
+                    raise InvalidSearchQuery(
+                        u"Multihistogram in selected columns but order by is another column."
+                    )
+
+                array_join_str_literals_column, multihistogram_column = find_multi_histogram_buckets(
+                    col, params, snuba_filter.conditions
+                )
+                selected_columns[idx] = array_join_str_literals_column
+                function_translations[get_function_alias(array_join_str_literals_column)] = "key_{}".format(function_alias)
+                selected_columns.insert(idx + 1, multihistogram_column)
+                function_translations[get_function_alias(multihistogram_column)] = function_alias
+            break
         idx += 1
 
     with sentry_sdk.start_span(op="discover.discover", description="query.field_translations"):
