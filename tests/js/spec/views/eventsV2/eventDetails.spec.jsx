@@ -104,7 +104,7 @@ describe('EventsV2 > EventDetails', function() {
       <EventDetails
         organization={TestStubs.Organization({projects: [TestStubs.Project()]})}
         params={{eventSlug: 'project-slug:deadbeef'}}
-        location={{query: allEventsView.generateQueryStringObject()}}
+        location={TestStubs.location({query: allEventsView.generateQueryStringObject()})}
       />,
       TestStubs.routerContext()
     );
@@ -117,7 +117,7 @@ describe('EventsV2 > EventDetails', function() {
       <EventDetails
         organization={TestStubs.Organization({projects: [TestStubs.Project()]})}
         params={{eventSlug: 'project-slug:abad1'}}
-        location={{query: allEventsView.generateQueryStringObject()}}
+        location={TestStubs.location({query: allEventsView.generateQueryStringObject()})}
       />,
       TestStubs.routerContext()
     );
@@ -130,7 +130,7 @@ describe('EventsV2 > EventDetails', function() {
       <EventDetails
         organization={TestStubs.Organization({projects: [TestStubs.Project()]})}
         params={{eventSlug: 'project-slug:deadbeef'}}
-        location={{query: errorsView.generateQueryStringObject()}}
+        location={TestStubs.location({query: errorsView.generateQueryStringObject()})}
       />,
       TestStubs.routerContext()
     );
@@ -154,7 +154,7 @@ describe('EventsV2 > EventDetails', function() {
       <EventDetails
         organization={TestStubs.Organization({projects: [TestStubs.Project()]})}
         params={{eventSlug: 'project-slug:deadbeef'}}
-        location={{query: allEventsView.generateQueryStringObject()}}
+        location={TestStubs.location({query: allEventsView.generateQueryStringObject()})}
       />,
       TestStubs.routerContext()
     );
@@ -177,7 +177,7 @@ describe('EventsV2 > EventDetails', function() {
       <EventDetails
         organization={organization}
         params={{eventSlug: 'project-slug:deadbeef'}}
-        location={{query: allEventsView.generateQueryStringObject()}}
+        location={TestStubs.location({query: allEventsView.generateQueryStringObject()})}
       />,
       routerContext
     );
@@ -223,9 +223,9 @@ describe('EventsV2 > EventDetails', function() {
       <EventDetails
         organization={organization}
         params={{eventSlug: 'project-slug:deadbeef'}}
-        location={{
+        location={TestStubs.location({
           query: {...allEventsView.generateQueryStringObject(), query: 'Dumpster'},
-        }}
+        })}
       />,
       routerContext
     );

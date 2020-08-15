@@ -13,6 +13,7 @@ describe('groupEventDetails', () => {
   let group;
   let event;
   let promptsActivity;
+  let location;
 
   const mockGroupApis = () => {
     MockApiClient.addMockResponse({
@@ -86,6 +87,7 @@ describe('groupEventDetails', () => {
     project = props.project;
     project.organization = org;
     routerContext = props.routerContext;
+    location = TestStubs.location();
 
     group = TestStubs.Group();
     event = TestStubs.Event({
@@ -133,7 +135,8 @@ describe('groupEventDetails', () => {
         organization={org}
         environments={[{id: '1', name: 'dev', displayName: 'Dev'}]}
         params={{orgId: org.slug, groupId: group.id, eventId: '1'}}
-        location={{}}
+        event={event}
+        location={location}
       />,
       routerContext
     );
@@ -154,7 +157,7 @@ describe('groupEventDetails', () => {
         organization={org}
         environments={[{id: '1', name: 'dev', displayName: 'Dev'}]}
         params={{orgId: org.slug, group: group.id, eventId: '1'}}
-        location={{}}
+        location={location}
       />,
       routerContext
     );
@@ -190,7 +193,8 @@ describe('groupEventDetails', () => {
         organization={org}
         environments={[{id: '1', name: 'dev', displayName: 'Dev'}]}
         params={{orgId: org.slug, groupId: group.id, eventId: '1'}}
-        location={{query: {environment: 'dev'}}}
+        event={event}
+        location={{...location, query: {environment: 'dev'}}}
       />,
       routerContext
     );
@@ -244,7 +248,8 @@ describe('groupEventDetails', () => {
           organization={org}
           environments={[{id: '1', name: 'dev', displayName: 'Dev'}]}
           params={{orgId: org.slug, groupId: group.id, eventId: '1'}}
-          location={{query: {environment: 'dev'}}}
+          event={event}
+          location={{...location, query: {environment: 'dev'}}}
         />,
         routerContext
       );
@@ -274,7 +279,8 @@ describe('groupEventDetails', () => {
           organization={org}
           environments={[{id: '1', name: 'dev', displayName: 'Dev'}]}
           params={{orgId: org.slug, groupId: group.id, eventId: '1'}}
-          location={{query: {environment: 'dev'}}}
+          event={event}
+          location={{...location, query: {environment: 'dev'}}}
         />,
         routerContext
       );
@@ -299,7 +305,8 @@ describe('groupEventDetails', () => {
           organization={org}
           environments={[{id: '1', name: 'dev', displayName: 'Dev'}]}
           params={{orgId: org.slug, groupId: group.id, eventId: '1'}}
-          location={{query: {environment: 'dev'}}}
+          event={event}
+          location={{...location, query: {environment: 'dev'}}}
         />,
         routerContext
       );
@@ -325,7 +332,8 @@ describe('groupEventDetails', () => {
           organization={org}
           environments={[{id: '1', name: 'dev', displayName: 'Dev'}]}
           params={{orgId: org.slug, groupId: group.id, eventId: '1'}}
-          location={{query: {environment: 'dev'}}}
+          event={event}
+          location={{...location, query: {environment: 'dev'}}}
         />,
         routerContext
       );
@@ -334,6 +342,27 @@ describe('groupEventDetails', () => {
 
       expect(wrapper.find('EventCause').exists()).toBe(true);
       expect(wrapper.find('EventCauseEmpty').exists()).toBe(false);
+    });
+
+    it('should not render the Related Events component', async function() {
+      const wrapper = mountWithTheme(
+        <GroupEventDetails
+          api={new MockApiClient()}
+          group={group}
+          project={project}
+          organization={{...org, features: ['related-events']}}
+          environments={[{id: '1', name: 'dev', displayName: 'Dev'}]}
+          params={{orgId: org.slug, groupId: group.id, eventId: '1'}}
+          event={{...event, contexts: {}}}
+          location={location}
+        />,
+        routerContext
+      );
+      await tick();
+      wrapper.update();
+
+      const eventRelatedEvents = wrapper.find('EventRelatedEvents');
+      expect(eventRelatedEvents).toHaveLength(0);
     });
   });
 
@@ -350,7 +379,7 @@ describe('groupEventDetails', () => {
           organization={org}
           environments={[{id: '1', name: 'dev', displayName: 'Dev'}]}
           params={{orgId: org.slug, groupId: group.id, eventId: '1'}}
-          location={{query: {environment: 'dev'}}}
+          location={{...location, query: {environment: 'dev'}}}
         />,
         routerContext
       );

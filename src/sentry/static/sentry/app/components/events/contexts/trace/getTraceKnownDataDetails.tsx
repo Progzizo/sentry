@@ -58,6 +58,7 @@ function getUserKnownDataDetails(
         start,
         end,
       });
+
       return {
         subject: t('Trace ID'),
         value: (

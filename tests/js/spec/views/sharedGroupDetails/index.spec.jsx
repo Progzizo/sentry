@@ -13,7 +13,9 @@ describe('SharedGroupDetails', function() {
         latestEvent: TestStubs.Event({
           entries: [TestStubs.EventEntry()],
         }),
-        project: TestStubs.Project({organization: {slug: 'test-org'}}),
+        project: TestStubs.Project({
+          organization: TestStubs.Organization({slug: 'test-org'}),
+        }),
       }),
     });
   });
@@ -28,7 +30,7 @@ describe('SharedGroupDetails', function() {
     };
 
     const wrapper = mountWithTheme(
-      <SharedGroupDetails {...props} />,
+      <SharedGroupDetails {...props} location={TestStubs.location()} />,
       TestStubs.routerContext()
     );
     expect(wrapper).toSnapshot();

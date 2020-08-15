@@ -35,9 +35,11 @@ import TemplateInterface from 'app/components/events/interfaces/template';
 import ThreadsInterface from 'app/components/events/interfaces/threads/threads';
 import {DataSection} from 'app/components/events/styles';
 import space from 'app/styles/space';
+import Feature from 'app/components/acl/feature';
 import withOrganization from 'app/utils/withOrganization';
 
 import BreadcrumbsInterface from './eventEntriesBreadcrumbs';
+import EventRelatedEvents from './eventRelatedEvents';
 
 export const INTERFACES = {
   exception: ExceptionInterface,
@@ -57,6 +59,7 @@ export const INTERFACES = {
 
 class EventEntries extends React.Component {
   static propTypes = {
+    origin: PropTypes.string,
     // Custom shape because shared view doesn't get id.
     organization: PropTypes.shape({
       id: PropTypes.string,
@@ -175,10 +178,10 @@ class EventEntries extends React.Component {
       showExampleCommit,
       showTagSummary,
       location,
+      origin,
     } = this.props;
 
-    const features =
-      organization && organization.features ? new Set(organization.features) : new Set();
+    const features = new Set(organization.features);
     const hasQueryFeature = features.has('discover-query');
 
     if (!event) {
@@ -239,6 +242,16 @@ class EventEntries extends React.Component {
           />
         )}
         {!objectIsEmpty(event.sdk) && <EventSdk event={event} />}
+        {origin !== 'issues' && (
+          <Feature features={['related-events']} organization={organization}>
+            <EventRelatedEvents
+              location={location}
+              event={event}
+              organization={organization}
+              isOriginDiscover={origin === 'discover'}
+            />
+          </Feature>
+        )}
         {!isShare && event.sdkUpdates && event.sdkUpdates.length > 0 && (
           <EventSdkUpdates event={event} />
         )}

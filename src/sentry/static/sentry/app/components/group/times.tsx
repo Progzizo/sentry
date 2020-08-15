@@ -36,6 +36,7 @@ const Times = ({lastSeen, firstSeen}: Props) => (
     </FlexWrapper>
   </Container>
 );
+
 Times.propTypes = {
   lastSeen: PropTypes.string,
   firstSeen: PropTypes.string,

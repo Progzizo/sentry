@@ -3,7 +3,6 @@ import isEqual from 'lodash/isEqual';
 import PropTypes from 'prop-types';
 import React from 'react';
 import {RouteComponentProps} from 'react-router/lib/Router';
-import * as Sentry from '@sentry/react';
 import styled from '@emotion/styled';
 
 import {Client} from 'app/api';
@@ -20,7 +19,7 @@ import SentryTypes from 'app/sentryTypes';
 import fetchSentryAppInstallations from 'app/utils/fetchSentryAppInstallations';
 import {Group, Project, Organization, Environment, Event} from 'app/types';
 
-import {fetchGroupEventAndMarkSeen, getEventEnvironment} from '../utils';
+import {getEventEnvironment} from '../utils';
 import GroupEventToolbar from '../eventToolbar';
 
 type Props = RouteComponentProps<
@@ -32,6 +31,7 @@ type Props = RouteComponentProps<
   project: Project;
   organization: Organization;
   environments: Environment[];
+  event: Event;
   className?: string;
 };
 
@@ -127,9 +127,7 @@ class GroupEventDetails extends React.Component<Props, State> {
   }
 
   fetchData = async () => {
-    const {api, group, project, organization, params, environments} = this.props;
-    const eventId = params.eventId || 'latest';
-    const groupId = group.id;
+    const {api, project, organization, event} = this.props;
     const orgSlug = organization.slug;
     const projSlug = project.slug;
     const projectId = project.id;
@@ -139,47 +137,23 @@ class GroupEventDetails extends React.Component<Props, State> {
       error: false,
     });
 
-    const envNames = environments.map(e => e.name);
-
     /**
      * Perform below requests in parallel
      */
     const releasesCompletionPromise = api.requestPromise(
       `/projects/${orgSlug}/${projSlug}/releases/completion/`
     );
-    const fetchGroupEventPromise = fetchGroupEventAndMarkSeen(
-      api,
-      orgSlug,
-      projSlug,
-      groupId,
-      eventId,
-      envNames
-    );
 
     fetchSentryAppInstallations(api, orgSlug);
     fetchSentryAppComponents(api, orgSlug, projectId);
 
     const releasesCompletion = await releasesCompletionPromise;
+
     this.setState({
       releasesCompletion,
+      loading: false,
+      event,
     });
-
-    try {
-      const event = await fetchGroupEventPromise;
-      this.setState({
-        event,
-        error: false,
-        loading: false,
-      });
-    } catch (err) {
-      // This is an expected error, capture to Sentry so that it is not considered as an unhandled error
-      Sentry.captureException(err);
-      this.setState({
-        event: null,
-        error: true,
-        loading: false,
-      });
-    }
   };
 
   get showExampleCommit() {
@@ -194,6 +168,7 @@ class GroupEventDetails extends React.Component<Props, State> {
 
   render() {
     const {className, group, project, organization, environments, location} = this.props;
+
     const evt = withMeta(this.state.event);
 
     return (
@@ -231,6 +206,7 @@ class GroupEventDetails extends React.Component<Props, State> {
                 project={project}
                 location={location}
                 showExampleCommit={this.showExampleCommit}
+                origin="issues"
               />
             )}
           </div>
