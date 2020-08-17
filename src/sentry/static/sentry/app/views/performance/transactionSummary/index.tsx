@@ -25,7 +25,6 @@ import withOrganization from 'app/utils/withOrganization';
 import withProjects from 'app/utils/withProjects';
 
 import SummaryContent from './content';
-import RealUserMonitoring from './realUserMonitoring';
 import {addRoutePerformanceContext, getTransactionName} from '../utils';
 
 type Props = {

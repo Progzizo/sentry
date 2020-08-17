@@ -350,10 +350,12 @@ def find_multi_histogram_buckets(field, params, conditions):
         ],
     )
 
+    array_join_str_literals_column = "array_join_str_literals({})".format(", ".join(columns[:-1]))
+    array_join_str_literals_alias = get_function_alias(array_join_str_literals_column)
+
     if len(results["data"]) == 0:
         # If there are no measurements, so no max duration, return one empty bucket
-        # return "histogram({}, 1, 1, 0)".format(column)
-        pass
+        return array_join_str_literals_column, "multihistogram(1, 1, 0, {})".format(array_join_str_literals_alias)
 
     bucket_min, bucket_max = float("inf"), -float("inf")
     for data in results["data"]:
@@ -370,16 +372,10 @@ def find_multi_histogram_buckets(field, params, conditions):
     # zerofill correctly.
     offset = int(floor(bucket_min / bucket_size) * bucket_size)
 
-    array_join_str_literals_column = "array_join_str_literals({})".format(", ".join(columns[:-1]))
     multihistogram_column = "multihistogram({:g}, {:.0f}, {:.0f}, {})".format(
-        num_buckets, bucket_size, offset, get_function_alias(array_join_str_literals_column)
+        num_buckets, bucket_size, offset, array_join_str_literals_alias
     )
-    return (
-        array_join_str_literals_column,
-        multihistogram_column
-    )
-
-    # return "multihistogram({:g}, {:.0f}, {:.0f}, {})".format(num_buckets, bucket_size, offset, ", ".join(columns[:-1]))
+    return (array_join_str_literals_column, multihistogram_column)
 
 
 def zerofill_histogram(results, column_meta, orderby, sentry_function_alias, snuba_function_alias):
@@ -439,9 +435,54 @@ def flatten_and_zerofill_multihistogram(results, column_meta, sentry_function_al
     if len(parts) < 5:
         raise Exception(u"{} is not a valid histogram alias".format(snuba_function_alias))
 
+    measure_keys = set()
+    sentry_alias_parts = sentry_function_alias.split("_")[1:-1]
+    assert len(sentry_alias_parts) % 2 == 0
+    for i in range(0, len(sentry_alias_parts), 2):
+        measure_keys.add(
+            '{}_{}_{}'.format(sentry_function_alias, sentry_alias_parts[i], sentry_alias_parts[i + 1])
+        )
+
+
+    # # TODO(tonyx): This doesnt guarantee that we have a list of all measures.
+    # # If a measure was never recorded before, then it will not appear in this
+    # # set. We need a more robust way to find all measures then zerofill them
+    # # NOTE: Once the columns are finalized, we might be able to depend on the
+    # # alias to determine the names of all the measures, but that is still rather
+    # # implicit and fragile.
+    # measure_keys = {
+    #     result["key_{}".format(sentry_function_alias)]
+    #     for result in results
+    # }
+    # measure_keys = {
+    #     "{}_{}".format(sentry_function_alias, measure_key.replace('.', '_'))
+    #     for measure_key in measure_keys
+    #     if measure_key
+    # }
+
     num_buckets, bucket_size, bucket_offset = int(parts[1]), int(parts[2]), int(parts[3])
 
-    return column_meta, results
+    new_results = []
+
+    # we assume the data is sorted in ascending order by the bins as we enforced that earlier
+    i = 0
+    for j in range(0, num_buckets, 1):
+        bucket = bucket_offset + (bucket_size * j)
+        # zero fill the values
+        new_result = {measure_key: 0 for measure_key in measure_keys}
+        new_result[sentry_function_alias] = bucket
+
+        while i < len(results) and results[i][sentry_function_alias] == bucket:
+            measure_key = results[i]["key_{}".format(sentry_function_alias)]
+            measure_key = measure_key.replace('.', '_')
+            new_measure_key = "{}_{}".format(sentry_function_alias, measure_key)
+            new_result[new_measure_key] = results[i]["count"]
+            i += 1
+
+        new_results.append(new_result)
+
+    # TODO(tonyx): The column meta is all wrong now because we flattened it
+    return column_meta, new_results
 
 
 def resolve_discover_aliases(snuba_filter, function_translations=None):
@@ -645,6 +686,14 @@ def query(
                 span.set_data("multihistogram", col)
                 function_alias = get_function_alias(col)
 
+                # the multihistogram only makes sense when we're sorting on the bucket values
+                # due to the way the post processing flattens the table
+                if orderby is None:
+                    raise InvalidSearchQuery(
+                        u"Multihistogram in selected columns but order by is another column."
+                    )
+
+                orderby = list(orderby) if isinstance(orderby, (list, tuple)) else [orderby]
                 if len(orderby) != 1 or function_alias != orderby[0]:
                     raise InvalidSearchQuery(
                         u"Multihistogram in selected columns but order by is another column."
@@ -653,10 +702,31 @@ def query(
                 array_join_str_literals_column, multihistogram_column = find_multi_histogram_buckets(
                     col, params, snuba_filter.conditions
                 )
+
+                array_join_alias = get_function_alias(array_join_str_literals_column)
                 selected_columns[idx] = array_join_str_literals_column
-                function_translations[get_function_alias(array_join_str_literals_column)] = "key_{}".format(function_alias)
+                function_translations[array_join_alias] = "key_{}".format(function_alias)
+
+                histogram_alias = get_function_alias(multihistogram_column)
                 selected_columns.insert(idx + 1, multihistogram_column)
-                function_translations[get_function_alias(multihistogram_column)] = function_alias
+                function_translations[histogram_alias] = function_alias
+
+                orderby = histogram_alias
+
+                # optimization: filter out the null measures from the histogram
+                if conditions is None:
+                    conditions = []
+                conditions.append([
+                    ["isNotNull", [get_function_alias(multihistogram_column)]],
+                    "=",
+                    1,
+                ])
+
+                # the existing limit is not good enough as we have N histograms stacked in the results
+                # which means we need to multiply it by N to get the number of results we want
+                # a better way to do this will probably be to parse the last argument of multihistogram
+                # and use that to determine the new limit
+                limit *= col.count(",")
             break
         idx += 1
 
@@ -720,6 +790,7 @@ def query(
         if conditions is not None:
             snuba_filter.conditions.extend(conditions)
 
+    print('raw query limit', limit)
     with sentry_sdk.start_span(op="discover.discover", description="query.snuba_query"):
         result = raw_query(
             start=snuba_filter.start,
@@ -1092,7 +1163,7 @@ def get_id(result):
         return result[1]
 
 
-def get_facets(query, params, limit=10, referrer=None):
+def get_facets(query, params, limit=10, referrer=None, tag_keys=None):
     """
     High-level API for getting 'facet map' results.
 
@@ -1104,6 +1175,7 @@ def get_facets(query, params, limit=10, referrer=None):
     params (Dict[str, str]) Filtering parameters with start, end, project_id, environment
     limit (int) The number of records to fetch.
     referrer (str|None) A referrer string to help locate the origin of this query.
+    tag_keys ([str]|None) A list of tag keys to query for or None to find the top tags
 
     Returns Sequence[FacetResult]
     """
@@ -1116,8 +1188,11 @@ def get_facets(query, params, limit=10, referrer=None):
         # Resolve the public aliases into the discover dataset names.
         snuba_filter, translated_columns = resolve_discover_aliases(snuba_filter)
 
-    # Exclude tracing tags as they are noisy and generally not helpful.
-    excluded_tags = ["tags_key", "NOT IN", ["trace", "trace.ctx", "trace.span", "project"]]
+    if tag_keys is not None:
+        having = ["tags_key", "IN", tag_keys]
+    else:
+        # Exclude tracing tags as they are noisy and generally not helpful.
+        having = ["tags_key", "NOT IN", ["trace", "trace.ctx", "trace.span", "project"]]
 
     # Sampling keys for multi-project results as we don't need accuracy
     # with that much data.
@@ -1133,7 +1208,7 @@ def get_facets(query, params, limit=10, referrer=None):
             filter_keys=snuba_filter.filter_keys,
             orderby=["-count", "tags_key"],
             groupby="tags_key",
-            having=[excluded_tags],
+            having=[having],
             dataset=Dataset.Discover,
             limit=limit,
             referrer=referrer,

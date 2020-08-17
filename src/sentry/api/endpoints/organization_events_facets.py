@@ -24,12 +24,14 @@ class OrganizationEventsFacetsEndpoint(OrganizationEventsEndpointBase):
             params = self.quantize_date_params(request, params)
             self._validate_project_ids(request, organization, params)
 
+        tags = request.GET.getlist("tag", None)
         with sentry_sdk.start_span(op="discover.endpoint", description="discover_query"):
             with self.handle_query_errors():
                 facets = discover.get_facets(
                     query=request.GET.get("query"),
                     params=params,
                     referrer="api.organization-events-facets.top-tags",
+                    tag_keys=tags if tags else None
                 )
 
         with sentry_sdk.start_span(op="discover.endpoint", description="populate_results") as span:

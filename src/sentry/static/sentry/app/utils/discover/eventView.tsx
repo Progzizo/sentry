@@ -870,8 +870,9 @@ class EventView {
   }
 
   getFacetsAPIPayload(
-    location: Location
-  ): Exclude<EventQuery & LocationQuery, 'sort' | 'cursor'> {
+    location: Location,
+    tag?: string
+  ): Exclude<EventQuery & LocationQuery, 'sort' | 'cursor'> & {tag?: string} {
     const payload = this.getEventsAPIPayload(location);
 
     const remove = ['id', 'name', 'per_page', 'sort', 'cursor', 'field', 'interval'];
@@ -879,7 +880,11 @@ class EventView {
       delete payload[key];
     }
 
-    return payload;
+    if (tag === undefined) {
+      return payload;
+    }
+
+    return {...payload, tag};
   }
 
   // Takes an EventView instance and converts it into the format required for the events API

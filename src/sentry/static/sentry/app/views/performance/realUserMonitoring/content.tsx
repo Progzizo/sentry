@@ -15,6 +15,7 @@ import {decodeScalar} from 'app/utils/queryString';
 import SearchBar from 'app/views/events/searchBar';
 
 import TransactionVitals from './transactionVitals';
+import BaselineValues from './baselineValues';
 import TransactionHeader from '../transactionSummary/header';
 
 type Props = {
@@ -90,15 +91,15 @@ class RumContent extends React.Component<Props> {
             </DropdownControl>
           </Layout.Side>
           <Layout.Main fullWidth>
+            <BaselineValues
+              organization={organization}
+              location={location}
+              eventView={eventView}
+            />
             <TransactionVitals
               organization={organization}
               location={location}
-              query={query}
-              project={eventView.project}
-              environment={eventView.environment}
-              start={eventView.start}
-              end={eventView.end}
-              statsPeriod={eventView.statsPeriod}
+              eventView={eventView}
             />
           </Layout.Main>
         </Layout.Body>

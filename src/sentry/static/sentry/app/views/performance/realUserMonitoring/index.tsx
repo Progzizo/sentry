@@ -39,6 +39,14 @@ class RealUserMonitoring extends React.Component<Props> {
     ),
   };
 
+  static getDerivedStateFromProps(nextProps: Props, prevState: State): State {
+    const {location} = nextProps;
+    return {
+      ...prevState,
+      eventView: generateRumEventView(nextProps.location, getTransactionName(location)),
+    };
+  }
+
   getDocumentTitle(): string {
     const {location} = this.props;
     const name = getTransactionName(location);

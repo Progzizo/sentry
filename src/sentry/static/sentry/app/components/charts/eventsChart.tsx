@@ -163,8 +163,10 @@ class Chart extends React.Component<ChartProps, State> {
       selected: seriesSelection,
     };
 
+    const colors = theme.charts.getColorPalette(timeseriesData.length - 2);
+
     const chartOptions = {
-      colors: theme.charts.getColorPalette(timeseriesData.length - 2),
+      colors,
       grid: {
         left: '24px',
         right: '24px',
