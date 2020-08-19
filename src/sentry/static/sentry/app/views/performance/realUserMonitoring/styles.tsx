@@ -6,18 +6,9 @@ import space from 'app/styles/space';
 import {getDuration} from 'app/utils/formatters';
 
 export const Card = styled(PanelItem)`
-  flex-grow: 1;
+  display: grid;
+  grid-template-columns: 325px minmax(100px, auto);
   padding: 0;
-
-  @media (min-width: ${p => p.theme.breakpoints[1]}) {
-    display: grid;
-    grid-template-columns: auto 66%;
-    align-content: start;
-  }
-
-  @media (min-width: ${p => p.theme.breakpoints[2]}) {
-    grid-template-columns: 325px minmax(100px, auto);
-  }
 `;
 
 export const CardSection = styled('div')`
@@ -25,6 +16,7 @@ export const CardSection = styled('div')`
 `;
 
 export const CardSummary = styled(CardSection)`
+  position: relative;
   border-right: 1px solid ${p => p.theme.borderLight};
   grid-column: 1/1;
 `;

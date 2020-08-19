@@ -4,10 +4,8 @@ import {browserHistory} from 'react-router';
 import styled from '@emotion/styled';
 import omit from 'lodash/omit';
 
-import DropdownControl, {DropdownItem} from 'app/components/dropdownControl';
 import * as Layout from 'app/components/layouts/thirds';
 import {getParams} from 'app/components/organizations/globalSelectionHeader/getParams';
-import {t} from 'app/locale';
 import space from 'app/styles/space';
 import {Organization, Project} from 'app/types';
 import EventView from 'app/utils/discover/eventView';
@@ -68,12 +66,11 @@ class RumContent extends React.Component<Props> {
               fields={eventView.fields}
               onSearch={this.handleSearch}
             />
-          </Layout.Main>
-          <Layout.Main fullWidth>
             <BaselineValues
               organization={organization}
               location={location}
               eventView={eventView}
+              transactionName={transactionName}
             />
             <TransactionVitals
               organization={organization}
@@ -88,7 +85,7 @@ class RumContent extends React.Component<Props> {
 }
 
 const StyledSearchBar = styled(SearchBar)`
-  margin-bottom: ${space(1)};
+  margin-bottom: ${space(3)};
 `;
 
 export default RumContent;

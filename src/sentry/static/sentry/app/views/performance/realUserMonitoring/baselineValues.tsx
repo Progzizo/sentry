@@ -2,6 +2,7 @@ import React from 'react';
 import {Location} from 'history';
 import styled from '@emotion/styled';
 
+import Link from 'app/components/links/link';
 import {Panel} from 'app/components/panels';
 import {
   // IconCreditCard,
@@ -10,11 +11,12 @@ import {
   // IconNetwork,
   IconWindow,
   // IconImage,
-} from 'app/icons';
-import space from 'app/styles/space';
+} from 'app/icons'; import space from 'app/styles/space';
 import {Organization} from 'app/types';
 import EventView from 'app/utils/discover/eventView';
+import {generateEventSlug} from 'app/utils/discover/urls';
 import BaselineQuery from 'app/views/performance/transactionSummary/baselineQuery';
+import {getTransactionDetailsUrl} from 'app/views/performance/utils';
 import {formatPercentage} from 'app/utils/formatters';
 
 import {
@@ -31,6 +33,7 @@ type Props = {
   organization: Organization;
   location: Location;
   eventView: EventView;
+  transactionName: string;
 };
 
 enum KeyTag {
@@ -118,34 +121,54 @@ class BaselineValues extends React.Component<Props> {
     );
   }
 
-  render() {
-    const {eventView, organization} = this.props;
+  renderBaselineEvent() {
+    const {eventView, location, organization, transactionName} = this.props;
 
     return (
       <BaselineQuery orgSlug={organization.slug} eventView={eventView}>
-        {baselineResults => {
-          const {isLoading, error, results} = baselineResults;
-          const eventId = results?.id ?? null;
-          const duration = results?.['transaction.duration'] ?? null;
+        {({isLoading, error, results}) => {
+          if (isLoading || error || results === null) {
+            return (
+              <CardSummary>
+                <CardSectionHeading>Baseline Duration</CardSectionHeading>
+                <StatNumber>{'\u2014'}</StatNumber>
+              </CardSummary>
+            );
+          }
+
+          const eventId = results.id;
+          const duration = results['transaction.duration'];
+
+          const eventSlug = generateEventSlug(results);
+          const target = getTransactionDetailsUrl(
+            organization,
+            eventSlug,
+            transactionName,
+            location.query
+          );
 
           return (
-            <Panel>
-              <Card>
-                <CardSummary>
-                  <CardSectionHeading>Baseline Duration</CardSectionHeading>
-                  <StatNumber>
-                    {isLoading || error !== null || duration === null
-                      ? '\u2014'
-                      : formatDuration(duration)}
-                  </StatNumber>
-                  {eventId !== null && <Description>ID: {eventId}</Description>}
-                </CardSummary>
-                {this.renderBaselineSummary()}
-              </Card>
-            </Panel>
+            <CardSummary>
+              <CardSectionHeading>Baseline Duration</CardSectionHeading>
+              <StatNumber>{formatDuration(duration)}</StatNumber>
+              <Link to={target}>
+                <Description>ID: {eventId}</Description>
+              </Link>
+            </CardSummary>
           );
         }}
       </BaselineQuery>
+    );
+  }
+
+  render() {
+    return (
+      <Panel>
+        <Card>
+          {this.renderBaselineEvent()}
+          {this.renderBaselineSummary()}
+        </Card>
+      </Panel>
     );
   }
 }
@@ -175,7 +198,7 @@ class TransactionTag extends React.Component<TagProps> {
 const BaselineSummary = styled('div')`
   display: grid;
   align-content: start;
-  grid-template: 1fr 1fr / 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
 `;
 
 const SummaryItem = styled('div')`

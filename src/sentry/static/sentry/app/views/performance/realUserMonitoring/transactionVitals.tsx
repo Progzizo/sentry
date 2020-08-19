@@ -9,11 +9,12 @@ import MarkArea from 'app/components/charts/components/markArea';
 import MarkLine from 'app/components/charts/components/markLine';
 import MarkPoint from 'app/components/charts/components/markPoint';
 import {Panel} from 'app/components/panels';
+import {FIRE_SVG_PATH} from 'app/icons/iconFire';
 import space from 'app/styles/space';
 import {Organization} from 'app/types';
 import EventView from 'app/utils/discover/eventView';
 import DiscoverQuery from 'app/utils/discover/discoverQuery';
-import theme, {Color} from 'app/utils/theme';
+import theme from 'app/utils/theme';
 import Tag from 'app/views/settings/components/tag';
 
 import {
@@ -195,18 +196,20 @@ type VitalProps = {
   vital: WebVital;
   summary: number | null;
   chartData: HistogramData[];
-  colors: [Color];
+  colors: [string];
 };
 
 type VitalState = {
-  baselineX: number | null;
-  failureAreaX: number | null;
+  failureThresholdX: number | null;
+  topY: number | null;
+  rightX: number | null;
 };
 
 class VitalCard extends React.Component<VitalProps, VitalState> {
   state = {
-    baselineX: null,
-    failureAreaX: null,
+    failureThresholdX: null,
+    topY: null,
+    rightX: null,
   };
 
   renderSummary() {
@@ -220,9 +223,9 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
         <CardSectionHeading>
           {VITAL_LONG_NAME[vital]}
           {summary === null ? null : summary < failureThreshold ? (
-            <StyledTag color={theme.purple500}>{t('PASS')}</StyledTag>
+            <StyledTag color={theme.purple500}>{t('pass')}</StyledTag>
           ) : (
-            <StyledTag color={theme.red400}>{t('FAIL')}</StyledTag>
+            <StyledTag color={theme.red400}>{t('fail')}</StyledTag>
           )}
         </CardSectionHeading>
         <StatNumber>
@@ -235,50 +238,98 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
     );
   }
 
-  convertToPixelX(chartRef, xAxis) {
-    const {chartData} = this.props;
+  convertToPixel(point, bottomLeftPoint, topRightPoint, bottomLeftPixel, topRightPixel) {
+    const [pointX, pointY] = point;
+    const [xAxis1, yAxis1] = bottomLeftPoint;
+    const [xAxis2, yAxis2] = topRightPoint;
+    const [x1, y1] = bottomLeftPixel;
+    const [x2, y2] = topRightPixel;
 
-    const coord1 = [0, 0];
-    const x1 = chartRef.convertToPixel({xAxisIndex: 0, yAxisIndex: 0}, coord1)[0];
+    const xPercentage = (pointX - xAxis1) / (xAxis2 - xAxis1);
+    const yPercentage = (pointY - yAxis1) / (yAxis2 - yAxis1);
 
-    const last = chartData.length - 1;
-    const coord2 = [last, 0];
-    const x2 = chartRef.convertToPixel({xAxisIndex: 0, yAxisIndex: 0}, coord2)[0];
-
-    if (isNaN(x1) || isNaN(x2)) {
-      return null;
-    }
-
-    const percentage =
-      (xAxis - chartData[0].histogram) /
-      (chartData[last].histogram - chartData[0].histogram);
-
-    return x1 + (x2 - x1) * percentage;
+    return [x1 + (x2 - x1) * xPercentage, y1 + (y2 - y1) * yPercentage];
   }
 
   handleFinished = (_, chartRef) => {
-    const {summary, vital} = this.props;
-    const {baselineX, failureAreaX} = this.state;
+    const {chartData, vital} = this.props;
+    const {topY, rightX, failureThresholdX} = this.state;
 
-    if (summary !== null) {
-      const newBaselineX = this.convertToPixelX(chartRef, summary);
-
-      if (newBaselineX !== null) {
-        // we only need to rerender component if the change is large
-        if (baselineX === null || Math.abs(baselineX! - newBaselineX) > 1) {
-          this.setState({baselineX: newBaselineX});
-        }
-      }
+    if (chartData.length <= 1) {
+      return;
     }
 
-    const newFailureAreaX = this.convertToPixelX(
-      chartRef,
-      VITAL_FAILURE_THRESHOLD[vital]
+    // compute the pixel coordinate of the bottom left corner axis coordinate
+    const dataMin = chartData.reduce((cur, next) =>
+      cur.count < next.count ? cur : next
     );
-    if (newFailureAreaX !== null) {
-      // we only need to rerender component if the change is large
-      if (failureAreaX === null || Math.abs(failureAreaX! - newFailureAreaX) > 1) {
-        this.setState({failureAreaX: newFailureAreaX});
+    const bottomLeft = chartRef.convertToPixel({xAxisIndex: 0, yAxisIndex: 0}, [
+      0,
+      dataMin.count,
+    ]);
+
+    // compute the pixel coordinate of the top right corner axis coordinate
+    const lastIdx = chartData.length - 1;
+    const dataMax = chartData.reduce((cur, next) =>
+      cur.count > next.count ? cur : next
+    );
+    const topRight = chartRef.convertToPixel({xAxisIndex: 0, yAxisIndex: 0}, [
+      lastIdx,
+      dataMax.count,
+    ]);
+
+    // make sure these bounds are computed properly before we proceed
+    if (
+      isNaN(bottomLeft[0]) ||
+      isNaN(bottomLeft[1]) ||
+      isNaN(topRight[0]) ||
+      isNaN(topRight[1])
+    ) {
+      return;
+    }
+
+    const halfBucketWidth = this.bucketWidth() / 2;
+
+    // compute the top right most pixel coordinate on the graph
+    // this is different from the top right axis coordinate because the right
+    // most coordinate is the center of the right most histogram
+    const [newRightX, newTopY] = this.convertToPixel(
+      [chartData[lastIdx].histogram + halfBucketWidth, dataMax.count],
+      [0, dataMin.count],
+      [chartData[chartData.length - 1].histogram, dataMax.count],
+      bottomLeft,
+      topRight
+    );
+    if (
+      topY === null ||
+      rightX === null ||
+      Math.abs(topY! - newTopY) > 1 ||
+      Math.abs(rightX! - newRightX) > 1
+    ) {
+      this.setState({
+        topY: newTopY,
+        rightX: newRightX,
+      });
+    }
+
+    // compute the left coordinate for the failure box
+    const failureThreshold = VITAL_FAILURE_THRESHOLD[vital];
+    const failureBucket = this.findNearestBucketIndex(failureThreshold);
+    if (failureBucket !== null) {
+      const failureXAxis = chartData[failureBucket].histogram - halfBucketWidth;
+      const newFailureThresholdX = this.convertToPixel(
+        [failureXAxis, 0],
+        [0, dataMin.count],
+        [chartData[chartData.length - 1].histogram, dataMax.count],
+        bottomLeft,
+        topRight
+      )[0];
+
+      if (
+        failureThresholdX === null ||
+        Math.abs(failureThresholdX! - newFailureThresholdX) > 1
+      ) {
+        this.setState({failureThresholdX: newFailureThresholdX});
       }
     }
   };
@@ -340,7 +391,7 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
         // tooltip={tooltip}
         colors={colors}
         onFinished={this.handleFinished}
-        grid={{left: space(3), right: space(3), top: '20px', bottom: '10px'}}
+        grid={{left: space(3), right: space(3), top: space(3), bottom: space(1.5)}}
       />
     );
   }
@@ -353,9 +404,37 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
     return chartData.length > 2 ? chartData[1].histogram - chartData[0].histogram : 0;
   }
 
-  getTransformedData() {
+  findNearestBucketIndex(xAxis: number): number | null {
     const {chartData} = this.props;
-    const {baselineX, failureAreaX} = this.state;
+    if (
+      !chartData.length ||
+      xAxis < chartData[0].histogram ||
+      xAxis > chartData[chartData.length - 1].histogram
+    ) {
+      return null;
+    }
+
+    const bucketWidth = this.bucketWidth();
+
+    let l = 0;
+    let r = chartData.length;
+    let m = Math.floor((l + r) / 2);
+
+    while (Math.abs(xAxis - chartData[m].histogram) > bucketWidth) {
+      if (xAxis > chartData[m].histogram) {
+        l = m + 1;
+      } else {
+        r = m - 1;
+      }
+      m = Math.floor((l + r) / 2);
+    }
+
+    return m;
+  }
+
+  getTransformedData() {
+    const {chartData, summary} = this.props;
+    const {failureThresholdX, topY, rightX} = this.state;
     const bucketWidth = this.bucketWidth();
 
     const seriesData = chartData.map(item => {
@@ -375,38 +454,31 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
       markArea: undefined,
     };
 
-    transformedSeries.markPoint = MarkPoint({
-      symbol:
-        'path://M8.08,15.92A6.58,6.58,0,0,1,1.51,9.34a4.88,4.88,0,0,1,2.2-4.25.74.74,0,0,1,1,.34,6,6,0,0,1,4-5.3A.74.74,0,0,1,9.4.22a.73.73,0,0,1,.33.61v.31A15.07,15.07,0,0,0,10,4.93a3.72,3.72,0,0,1,2.3-1.7.74.74,0,0,1,.66.12.75.75,0,0,1,.3.6A6.21,6.21,0,0,0,14,6.79a5.78,5.78,0,0,1,.68,2.55A6.58,6.58,0,0,1,8.08,15.92ZM3.59,7.23A4.25,4.25,0,0,0,3,9.34a5.07,5.07,0,1,0,10.14,0,4.6,4.6,0,0,0-.54-1.94,8,8,0,0,1-.76-2.32A2,2,0,0,0,11.07,7a.75.75,0,0,1-1.32.58C8.4,6,8.25,4.22,8.23,2c-2,1.29-2.15,3.58-2.09,5.85A7.52,7.52,0,0,1,6.14,9a.74.74,0,0,1-.46.63.77.77,0,0,1-.76-.11A4.56,4.56,0,0,1,3.59,7.23Z',
-      symbolSize: [13, 15],
-      data: [{x: 100, y: 100}],
-    });
-
-    if (baselineX) {
-      transformedSeries.markLine = MarkLine({
-        silent: true,
-        lineStyle: {
-          normal: {
-            color: theme.gray700,
-            opacity: 0.3,
-            type: 'solid',
+    if (summary !== null) {
+      const summaryBucket = this.findNearestBucketIndex(summary);
+      if (summaryBucket === null) {
+        delete transformedSeries.markLine;
+      } else {
+        transformedSeries.markLine = MarkLine({
+          silent: true,
+          lineStyle: {
+            normal: {
+              color: theme.gray700,
+              opacity: 0.3,
+              type: 'solid',
+            },
           },
-        },
-        data: [
-          [
-            {x: baselineX, yAxis: 0},
-            {x: baselineX, yAxis: 'max'},
-          ],
-        ],
-        label: {
-          show: false,
-        },
-      });
-    } else {
-      delete transformedSeries.markLine;
+          data: [{xAxis: summaryBucket}],
+          label: {
+            show: false,
+          },
+        });
+      }
     }
 
-    if (failureAreaX !== null) {
+    if (failureThresholdX === null) {
+      delete transformedSeries.markArea;
+    } else {
       transformedSeries.markArea = MarkArea({
         silent: true,
         itemStyle: {
@@ -414,16 +486,30 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
           borderColor: theme.red400,
           borderWidth: 1.5,
           borderType: 'dashed',
+          zLevel: theme.zIndex.tooltip,
         },
         data: [
           [
-            {x: failureAreaX, yAxis: 0},
+            {x: failureThresholdX, yAxis: 'min'},
             {x: 'max', yAxis: 'max'},
           ],
         ],
       });
+    }
+
+    if (topY === null || rightX === null) {
+      delete transformedSeries.markPoint;
     } else {
-      delete transformedSeries.markArea;
+      transformedSeries.markPoint = MarkPoint({
+        silent: true,
+        symbol: `path://${FIRE_SVG_PATH}`,
+        symbolSize: [14, 16],
+        symbolKeepAspect: true,
+        itemStyle: {
+          color: theme.red400,
+        },
+        data: [{x: rightX! - 16, y: topY! + 16}],
+      });
     }
 
     return transformedSeries;
@@ -459,8 +545,13 @@ type TagProps = {
 };
 
 const StyledTag = styled(Tag)<TagProps>`
+  position: absolute;
+  right: ${space(3)};
+
   background-color: ${p => p.color};
   color: ${p => p.theme.white};
+  text-transform: uppercase;
+  font-weight: 500;
 `;
 
 export default TransactionVitals;
