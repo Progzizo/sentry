@@ -14,7 +14,7 @@ import SearchBar from 'app/views/events/searchBar';
 
 import TransactionVitals from './transactionVitals';
 import BaselineValues from './baselineValues';
-import TransactionHeader from '../transactionSummary/header';
+import TransactionHeader from '../header';
 
 type Props = {
   location: Location;

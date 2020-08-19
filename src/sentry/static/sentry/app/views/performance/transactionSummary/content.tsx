@@ -17,7 +17,7 @@ import CreateAlertButton from 'app/components/createAlertButton';
 import withProjects from 'app/utils/withProjects';
 import {trackAnalyticsEvent} from 'app/utils/analytics';
 
-import TransactionHeader from './header';
+import TransactionHeader from '../header';
 import TransactionList from './transactionList';
 import UserStats from './userStats';
 import KeyTransactionButton from './keyTransactionButton';

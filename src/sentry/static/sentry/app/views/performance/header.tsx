@@ -14,8 +14,8 @@ import {trackAnalyticsEvent} from 'app/utils/analytics';
 import EventView from 'app/utils/discover/eventView';
 import withProjects from 'app/utils/withProjects';
 
-import KeyTransactionButton from './keyTransactionButton';
-import Breadcrumb from '../breadcrumb';
+import KeyTransactionButton from './transactionSummary/keyTransactionButton';
+import Breadcrumb from './breadcrumb';
 
 type Props = {
   eventView: EventView;
