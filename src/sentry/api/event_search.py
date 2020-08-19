@@ -1213,11 +1213,6 @@ class FunctionArg(object):
         raise InvalidFunctionArgument(u"{} has no defaults".format(self.name))
 
 
-class AliasColumn(FunctionArg):
-    def normalize(self, value):
-        return value
-
-
 class CountColumn(FunctionArg):
     def __init__(self, name):
         super(CountColumn, self).__init__(name, has_default=True)
@@ -1460,7 +1455,7 @@ FUNCTIONS = {
             NumberRange("num_buckets", 1, 500),
             NumberRange("bucket_size", 0, None),
             NumberRange("start_offset", 0, None),
-            AliasColumn("measures_key_alias"),
+            FunctionArg("measures_key_alias"),
         ],
         "column": [
             "multiply",

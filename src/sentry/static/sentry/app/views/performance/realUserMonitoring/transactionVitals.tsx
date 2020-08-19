@@ -5,14 +5,16 @@ import styled from '@emotion/styled';
 import {t} from 'app/locale';
 import AsyncComponent from 'app/components/asyncComponent';
 import BarChart from 'app/components/charts/barChart';
-// import LineSeries from 'app/components/charts/series/lineSeries';
-// import MarkLine from 'app/components/charts/components/markLine';
+import MarkArea from 'app/components/charts/components/markArea';
+import MarkLine from 'app/components/charts/components/markLine';
+import MarkPoint from 'app/components/charts/components/markPoint';
 import {Panel} from 'app/components/panels';
 import space from 'app/styles/space';
 import {Organization} from 'app/types';
 import EventView from 'app/utils/discover/eventView';
 import DiscoverQuery from 'app/utils/discover/discoverQuery';
-import theme from 'app/utils/theme';
+import theme, {Color} from 'app/utils/theme';
+import Tag from 'app/views/settings/components/tag';
 
 import {
   Card,
@@ -30,9 +32,7 @@ enum WebVital {
   FCP = 'fcp',
   LCP = 'lcp',
   FID = 'fid',
-  // TTI = 'tti,
-  TBT = 'tbt',
-  CLS = 'cls',
+  TTI = 'tbt',
 }
 
 type Props = AsyncComponent['props'] & {
@@ -157,30 +157,36 @@ const VITAL_LONG_NAME: Record<WebVital, string> = {
   [WebVital.FCP]: t('First Contentful Paint (FCP)'),
   [WebVital.LCP]: t('Largest Contentful Paint (LCP)'),
   [WebVital.FID]: t('First Input Delay (FID)'),
-  // [WebVital.TTI]: t('Time To Interactive (TTI)'),
-  [WebVital.TBT]: t('Total Blocking Time (TBT)'),
-  [WebVital.CLS]: t('Content Layout Shift  (CLS)'),
+  [WebVital.TTI]: t('Time To Interactive (TTI)'),
 };
 
 const VITAL_DESCRIPTION: Record<WebVital, string> = {
   [WebVital.FCP]: t(
-    "Must go faster. You're a very talented young man, with your own clever thoughts."
+    'The first moment DOM content such as text or an image gets rendered.'
   ),
   [WebVital.LCP]: t(
-    "Must go faster. You're a very talented young man, with your own clever thoughts."
+    'The moment when the largest content element gets rendered in the page.'
   ),
   [WebVital.FID]: t(
-    "Must go faster. You're a very talented young man, with your own clever thoughts."
+    'The first moment when an user interacts with the page by clicking, scrolling, etc.'
   ),
-  // [WebVital.TTI]: t(
-  //   "Must go faster. You're a very talented young man, with your own clever thoughts."
-  // ),
-  [WebVital.TBT]: t(
-    "Must go faster. You're a very talented young man, with your own clever thoughts."
+  [WebVital.TTI]: t(
+    'The moment when the page has the most visible, interactive elements.'
   ),
-  [WebVital.CLS]: t(
-    "Must go faster. You're a very talented young man, with your own clever thoughts."
-  ),
+};
+
+const VITAL_WARNING_THRESHOLD: Record<WebVital, number> = {
+  [WebVital.FCP]: 2000,
+  [WebVital.LCP]: 2500,
+  [WebVital.FID]: 100,
+  [WebVital.TTI]: 3000, // couldnt find one on web.dev so i just made one up
+};
+
+const VITAL_FAILURE_THRESHOLD: Record<WebVital, number> = {
+  [WebVital.FCP]: 4000,
+  [WebVital.LCP]: 4000,
+  [WebVital.FID]: 300,
+  [WebVital.TTI]: 5000,
 };
 
 type VitalProps = {
@@ -189,17 +195,36 @@ type VitalProps = {
   vital: WebVital;
   summary: number | null;
   chartData: HistogramData[];
-  colors: [string];
+  colors: [Color];
 };
 
-class VitalCard extends React.Component<VitalProps> {
+type VitalState = {
+  baselineX: number | null;
+  failureAreaX: number | null;
+};
+
+class VitalCard extends React.Component<VitalProps, VitalState> {
+  state = {
+    baselineX: null,
+    failureAreaX: null,
+  };
+
   renderSummary() {
     const {isLoading, error, summary, vital, colors} = this.props;
+
+    const failureThreshold = VITAL_FAILURE_THRESHOLD[vital];
 
     return (
       <CardSummary>
         <Indicator color={colors[0]} />
-        <CardSectionHeading>{VITAL_LONG_NAME[vital]}</CardSectionHeading>
+        <CardSectionHeading>
+          {VITAL_LONG_NAME[vital]}
+          {summary === null ? null : summary < failureThreshold ? (
+            <StyledTag color={theme.purple500}>{t('PASS')}</StyledTag>
+          ) : (
+            <StyledTag color={theme.red400}>{t('FAIL')}</StyledTag>
+          )}
+        </CardSectionHeading>
         <StatNumber>
           {isLoading || error !== null || summary === null
             ? '\u2014'
@@ -210,8 +235,56 @@ class VitalCard extends React.Component<VitalProps> {
     );
   }
 
+  convertToPixelX(chartRef, xAxis) {
+    const {chartData} = this.props;
+
+    const coord1 = [0, 0];
+    const x1 = chartRef.convertToPixel({xAxisIndex: 0, yAxisIndex: 0}, coord1)[0];
+
+    const last = chartData.length - 1;
+    const coord2 = [last, 0];
+    const x2 = chartRef.convertToPixel({xAxisIndex: 0, yAxisIndex: 0}, coord2)[0];
+
+    if (isNaN(x1) || isNaN(x2)) {
+      return null;
+    }
+
+    const percentage =
+      (xAxis - chartData[0].histogram) /
+      (chartData[last].histogram - chartData[0].histogram);
+
+    return x1 + (x2 - x1) * percentage;
+  }
+
+  handleFinished = (_, chartRef) => {
+    const {summary, vital} = this.props;
+    const {baselineX, failureAreaX} = this.state;
+
+    if (summary !== null) {
+      const newBaselineX = this.convertToPixelX(chartRef, summary);
+
+      if (newBaselineX !== null) {
+        // we only need to rerender component if the change is large
+        if (baselineX === null || Math.abs(baselineX! - newBaselineX) > 1) {
+          this.setState({baselineX: newBaselineX});
+        }
+      }
+    }
+
+    const newFailureAreaX = this.convertToPixelX(
+      chartRef,
+      VITAL_FAILURE_THRESHOLD[vital]
+    );
+    if (newFailureAreaX !== null) {
+      // we only need to rerender component if the change is large
+      if (failureAreaX === null || Math.abs(failureAreaX! - newFailureAreaX) > 1) {
+        this.setState({failureAreaX: newFailureAreaX});
+      }
+    }
+  };
+
   renderHistogram() {
-    const {chartData, colors} = this.props;
+    const {colors} = this.props;
 
     const xAxis = {
       type: 'category',
@@ -254,26 +327,106 @@ class VitalCard extends React.Component<VitalProps> {
     //   },
     // };
 
-    const series = transformData(chartData, NUM_BUCKETS);
+    const series = this.getTransformedData();
+
+    const values = series.data.map(point => point.value);
+    const max = values.length ? Math.max(...values) : undefined;
 
     return (
       <BarChart
-        grid={{left: space(3), right: space(3), top: '20px', bottom: '10px'}}
+        series={[series]}
         xAxis={xAxis}
-        yAxis={{type: 'value'}}
+        yAxis={{type: 'value', max}}
         // tooltip={tooltip}
         colors={colors}
-        series={series}
+        onFinished={this.handleFinished}
+        grid={{left: space(3), right: space(3), top: '20px', bottom: '10px'}}
       />
     );
   }
 
-  get bucketWidth() {
+  bucketWidth() {
     const {chartData} = this.props;
     // We can assume that all buckets are of equal width, use the first two
     // buckets to get the width. The value of each histogram function indicates
     // the beginning of the bucket.
     return chartData.length > 2 ? chartData[1].histogram - chartData[0].histogram : 0;
+  }
+
+  getTransformedData() {
+    const {chartData} = this.props;
+    const {baselineX, failureAreaX} = this.state;
+    const bucketWidth = this.bucketWidth();
+
+    const seriesData = chartData.map(item => {
+      const bucket = item.histogram;
+      const midPoint = bucketWidth > 1 ? Math.ceil(bucket + bucketWidth / 2) : bucket;
+      return {
+        value: item.count,
+        name: formatDuration(midPoint),
+      };
+    });
+
+    const transformedSeries = {
+      seriesName: t('Count'),
+      data: seriesData,
+      markPoint: undefined,
+      markLine: undefined,
+      markArea: undefined,
+    };
+
+    transformedSeries.markPoint = MarkPoint({
+      symbol:
+        'path://M8.08,15.92A6.58,6.58,0,0,1,1.51,9.34a4.88,4.88,0,0,1,2.2-4.25.74.74,0,0,1,1,.34,6,6,0,0,1,4-5.3A.74.74,0,0,1,9.4.22a.73.73,0,0,1,.33.61v.31A15.07,15.07,0,0,0,10,4.93a3.72,3.72,0,0,1,2.3-1.7.74.74,0,0,1,.66.12.75.75,0,0,1,.3.6A6.21,6.21,0,0,0,14,6.79a5.78,5.78,0,0,1,.68,2.55A6.58,6.58,0,0,1,8.08,15.92ZM3.59,7.23A4.25,4.25,0,0,0,3,9.34a5.07,5.07,0,1,0,10.14,0,4.6,4.6,0,0,0-.54-1.94,8,8,0,0,1-.76-2.32A2,2,0,0,0,11.07,7a.75.75,0,0,1-1.32.58C8.4,6,8.25,4.22,8.23,2c-2,1.29-2.15,3.58-2.09,5.85A7.52,7.52,0,0,1,6.14,9a.74.74,0,0,1-.46.63.77.77,0,0,1-.76-.11A4.56,4.56,0,0,1,3.59,7.23Z',
+      symbolSize: [13, 15],
+      data: [{x: 100, y: 100}],
+    });
+
+    if (baselineX) {
+      transformedSeries.markLine = MarkLine({
+        silent: true,
+        lineStyle: {
+          normal: {
+            color: theme.gray700,
+            opacity: 0.3,
+            type: 'solid',
+          },
+        },
+        data: [
+          [
+            {x: baselineX, yAxis: 0},
+            {x: baselineX, yAxis: 'max'},
+          ],
+        ],
+        label: {
+          show: false,
+        },
+      });
+    } else {
+      delete transformedSeries.markLine;
+    }
+
+    if (failureAreaX !== null) {
+      transformedSeries.markArea = MarkArea({
+        silent: true,
+        itemStyle: {
+          color: 'transparent',
+          borderColor: theme.red400,
+          borderWidth: 1.5,
+          borderType: 'dashed',
+        },
+        data: [
+          [
+            {x: failureAreaX, yAxis: 0},
+            {x: 'max', yAxis: 'max'},
+          ],
+        ],
+      });
+    } else {
+      delete transformedSeries.markArea;
+    }
+
+    return transformedSeries;
   }
 
   render() {
@@ -284,24 +437,6 @@ class VitalCard extends React.Component<VitalProps> {
       </Card>
     );
   }
-}
-
-function transformData(data: HistogramData[], bucketWidth: number) {
-  const seriesData = data.map(item => {
-    const bucket = item.histogram;
-    const midPoint = bucketWidth > 1 ? Math.ceil(bucket + bucketWidth / 2) : bucket;
-    return {
-      value: item.count,
-      name: formatDuration(midPoint),
-    };
-  });
-
-  return [
-    {
-      seriesName: t('Count'),
-      data: seriesData,
-    },
-  ];
 }
 
 type IndicatorProps = {
@@ -317,6 +452,15 @@ const Indicator = styled('div')<IndicatorProps>`
   border-radius: 0 3px 3px 0;
 
   background-color: ${p => p.color};
+`;
+
+type TagProps = {
+  color: string;
+};
+
+const StyledTag = styled(Tag)<TagProps>`
+  background-color: ${p => p.color};
+  color: ${p => p.theme.white};
 `;
 
 export default TransactionVitals;

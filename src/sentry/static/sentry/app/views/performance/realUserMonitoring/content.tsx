@@ -60,7 +60,7 @@ class RumContent extends React.Component<Props> {
           transactionName={transactionName}
         />
         <Layout.Body>
-          <Layout.Main>
+          <Layout.Main fullWidth>
             <StyledSearchBar
               organization={organization}
               projectIds={eventView.project}
@@ -69,27 +69,6 @@ class RumContent extends React.Component<Props> {
               onSearch={this.handleSearch}
             />
           </Layout.Main>
-          <Layout.Side>
-            <DropdownControl
-              data-test-id="filter-transactions"
-              label="last-2-weeks"
-              buttonProps={{prefix: t('Filter'), size: 'small'}}
-            >
-              <DropdownItem
-                onSelect={this.handleTransactionFilterChange}
-                eventKey="last-2-weeks"
-                isActive
-              >
-                Last 2 Weeks
-              </DropdownItem>
-              <DropdownItem
-                onSelect={this.handleTransactionFilterChange}
-                eventKey="last-4-weeks"
-              >
-                Last 4 Weeks
-              </DropdownItem>
-            </DropdownControl>
-          </Layout.Side>
           <Layout.Main fullWidth>
             <BaselineValues
               organization={organization}
