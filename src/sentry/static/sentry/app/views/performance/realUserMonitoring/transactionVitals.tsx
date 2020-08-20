@@ -13,28 +13,13 @@ import {FIRE_SVG_PATH} from 'app/icons/iconFire';
 import space from 'app/styles/space';
 import {Organization} from 'app/types';
 import EventView from 'app/utils/discover/eventView';
-import DiscoverQuery from 'app/utils/discover/discoverQuery';
 import theme from 'app/utils/theme';
 import Tag from 'app/views/settings/components/tag';
 
-import {
-  Card,
-  CardSummary,
-  CardSectionHeading,
-  StatNumber,
-  Description,
-  formatDuration,
-} from './styles';
-
-const NUM_BUCKETS = 50;
-const PERCENTILE = 0.75;
-
-enum WebVital {
-  FCP = 'fcp',
-  LCP = 'lcp',
-  FID = 'fid',
-  TTI = 'tbt',
-}
+import {Card, CardSummary, CardSectionHeading, StatNumber, Description} from './styles';
+import {formatNumber, formatDuration} from './utils';
+import VitalsQuery from './vitalsQuery';
+import {HistogramData, WebVital} from './types';
 
 type Props = AsyncComponent['props'] & {
   organization: Organization;
@@ -42,114 +27,31 @@ type Props = AsyncComponent['props'] & {
   eventView: EventView;
 };
 
-type HistogramData = {
-  histogram: number;
-  count: number;
-};
-
-const vitals = Object.values(WebVital).map(vital => `metrics.${vital}`);
-const vitals_key = vitals.join('_').replace(/\./g, '_');
-const RESULT_KEY = `multihistogram_${vitals_key}_${NUM_BUCKETS}`;
-
 class TransactionVitals extends React.Component<Props> {
-  generateHistogramEventView() {
-    const {eventView} = this.props;
-
-    return EventView.fromSavedQuery({
-      id: '',
-      name: '',
-      version: 2,
-      fields: [`multihistogram(${vitals.join(', ')}, ${NUM_BUCKETS})`, 'count()'],
-      orderby: RESULT_KEY,
-      projects: eventView.project,
-      range: eventView.statsPeriod,
-      query: eventView.query,
-      environment: eventView.environment,
-      start: eventView.start,
-      end: eventView.end,
-    });
-  }
-
-  generateSummaryEventView() {
-    const {eventView} = this.props;
-
-    return EventView.fromSavedQuery({
-      id: '',
-      name: '',
-      version: 2,
-      fields: Object.values(WebVital).map(
-        vital => `percentile(metrics.${vital}, ${PERCENTILE})`
-      ),
-      projects: eventView.project,
-      range: eventView.statsPeriod,
-      query: eventView.query,
-      environment: eventView.environment,
-      start: eventView.start,
-      end: eventView.end,
-    });
-  }
-
   render() {
-    const {location, organization} = this.props;
-
-    const histogramsEventView = this.generateHistogramEventView();
-    const summaryEventView = this.generateSummaryEventView();
+    const {location, organization, eventView} = this.props;
+    const colors = theme.charts.getColorPalette(Object.keys(WebVital).length - 1);
 
     return (
-      <DiscoverQuery
-        location={location}
-        eventView={summaryEventView}
-        orgSlug={organization.slug}
-        limit={1}
-      >
-        {summaryResults => {
+      <VitalsQuery location={location} organization={organization} eventView={eventView}>
+        {results => {
           return (
-            <DiscoverQuery
-              location={location}
-              eventView={histogramsEventView}
-              orgSlug={organization.slug}
-            >
-              {histogramResults => {
-                const isLoading = summaryResults.isLoading || histogramResults.isLoading;
-                const error = summaryResults.error ?? histogramResults.error;
-
-                const summaryData = summaryResults?.tableData?.data?.[0] ?? null;
-                const histogramData = histogramResults?.tableData?.data ?? [];
-
-                const colors = theme.charts.getColorPalette(3);
-                const percentile = PERCENTILE.toString().replace('.', '_');
-
-                return (
-                  <Panel>
-                    {Object.values(WebVital).map((vital, index) => {
-                      const summaryKey = `percentile_metrics_${vital}_${percentile}`;
-                      const histogramKey = `${RESULT_KEY}_metrics_${vital}`;
-
-                      const summary = summaryData?.[summaryKey] ?? null;
-                      const data = histogramData.map(d => ({
-                        histogram: d[RESULT_KEY] ?? 0,
-                        count: d[histogramKey] ?? 0,
-                      })) as HistogramData[];
-
-                      return (
-                        <VitalCard
-                          key={vital}
-                          isLoading={isLoading}
-                          error={error}
-                          colors={[colors[colors.length - index - 1]]}
-                          vital={vital}
-                          chartData={data}
-                          summary={summary as number}
-                        />
-                      );
-                    })}
-                  </Panel>
-                );
-              }}
-            </DiscoverQuery>
+            <Panel>
+              {Object.values(WebVital).map((vital, index) => (
+                <VitalCard
+                  key={vital}
+                  colors={[colors[colors.length - index - 1]]}
+                  vital={vital}
+                  isLoading={results.isLoading}
+                  error={results.errors.length > 0}
+                  chartData={results.histogram[vital]}
+                  summary={results.summary[vital]}
+                />
+              ))}
+            </Panel>
           );
         }}
-      </DiscoverQuery>
+      </VitalsQuery>
     );
   }
 }
@@ -158,7 +60,7 @@ const VITAL_LONG_NAME: Record<WebVital, string> = {
   [WebVital.FCP]: t('First Contentful Paint (FCP)'),
   [WebVital.LCP]: t('Largest Contentful Paint (LCP)'),
   [WebVital.FID]: t('First Input Delay (FID)'),
-  [WebVital.TTI]: t('Time To Interactive (TTI)'),
+  [WebVital.CLS]: t('Cumulative Layout Shift (CLS)'),
 };
 
 const VITAL_DESCRIPTION: Record<WebVital, string> = {
@@ -171,28 +73,35 @@ const VITAL_DESCRIPTION: Record<WebVital, string> = {
   [WebVital.FID]: t(
     'The first moment when an user interacts with the page by clicking, scrolling, etc.'
   ),
-  [WebVital.TTI]: t(
+  [WebVital.CLS]: t(
     'The moment when the page has the most visible, interactive elements.'
   ),
 };
 
-const VITAL_WARNING_THRESHOLD: Record<WebVital, number> = {
-  [WebVital.FCP]: 2000,
-  [WebVital.LCP]: 2500,
-  [WebVital.FID]: 100,
-  [WebVital.TTI]: 3000, // couldnt find one on web.dev so i just made one up
-};
+// const VITAL_WARNING_THRESHOLD: Record<WebVital, number> = {
+//   [WebVital.FCP]: 2000,
+//   [WebVital.LCP]: 2500,
+//   [WebVital.FID]: 100,
+//   [WebVital.CLS]: 0.1,
+// };
 
 const VITAL_FAILURE_THRESHOLD: Record<WebVital, number> = {
   [WebVital.FCP]: 4000,
   [WebVital.LCP]: 4000,
   [WebVital.FID]: 300,
-  [WebVital.TTI]: 5000,
+  [WebVital.CLS]: 0.25,
 };
+
+const VITAL_TYPE: Record<WebVital, 'number' | 'duration'> = {
+  [WebVital.FCP]: 'duration',
+  [WebVital.LCP]: 'duration',
+  [WebVital.FID]: 'duration',
+  [WebVital.CLS]: 'number',
+}
 
 type VitalProps = {
   isLoading: boolean;
-  error: string | null;
+  error: boolean;
   vital: WebVital;
   summary: number | null;
   chartData: HistogramData[];
@@ -229,9 +138,11 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
           )}
         </CardSectionHeading>
         <StatNumber>
-          {isLoading || error !== null || summary === null
+          {isLoading || error || summary === null
             ? '\u2014'
-            : formatDuration(summary)}
+            : VITAL_TYPE[vital] === 'duration'
+            ? formatDuration(summary)
+            : formatNumber(summary)}
         </StatNumber>
         <Description>{VITAL_DESCRIPTION[vital]}</Description>
       </CardSummary>
@@ -433,7 +344,7 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
   }
 
   getTransformedData() {
-    const {chartData, summary} = this.props;
+    const {chartData, summary, vital} = this.props;
     const {failureThresholdX, topY, rightX} = this.state;
     const bucketWidth = this.bucketWidth();
 
@@ -442,7 +353,10 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
       const midPoint = bucketWidth > 1 ? Math.ceil(bucket + bucketWidth / 2) : bucket;
       return {
         value: item.count,
-        name: formatDuration(midPoint),
+        name:
+          VITAL_TYPE[vital] === 'duration'
+            ? formatDuration(midPoint)
+            : formatNumber(midPoint),
       };
     });
 

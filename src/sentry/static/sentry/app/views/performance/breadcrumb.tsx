@@ -51,23 +51,31 @@ class Breadcrumb extends React.Component<Props> {
         query: location.query,
       });
 
-      crumbs.push({
-        to: summaryTarget,
-        label: t('Transaction Summary'),
-        preserveGlobalSelection: true,
-      });
-    }
+      if (location.pathname.includes('/rum/')) {
+        crumbs.push({
+          to: summaryTarget,
+          label: t('Real User Monitoring'),
+          preserveGlobalSelection: true,
+        });
+      } else {
+        crumbs.push({
+          to: summaryTarget,
+          label: t('Transaction Summary'),
+          preserveGlobalSelection: true,
+        });
 
-    if (transactionName && eventSlug) {
-      crumbs.push({
-        to: '',
-        label: t('Event Details'),
-      });
-    } else if (transactionComparison) {
-      crumbs.push({
-        to: '',
-        label: t('Compare to Baseline'),
-      });
+        if (transactionName && eventSlug) {
+          crumbs.push({
+            to: '',
+            label: t('Event Details'),
+          });
+        } else if (transactionComparison) {
+          crumbs.push({
+            to: '',
+            label: t('Compare to Baseline'),
+          });
+        }
+      }
     }
 
     return crumbs;
