@@ -3,11 +3,12 @@ import {Location} from 'history';
 
 import {Organization} from 'app/types';
 import EventView from 'app/utils/discover/eventView';
+import {getAggregateAlias} from 'app/utils/discover/fields';
 import DiscoverQuery from 'app/utils/discover/discoverQuery';
 
 import {NUM_BUCKETS, PERCENTILE, DURATION_VITALS} from './constants';
-import {HistogramData, WebVital} from './types';
-import {getMeasuresHistogramResultsKey} from './utils';
+import {MeasuresHistogramArgs, HistogramData, WebVital} from './types';
+import {getMeasuresHistogramFunction} from './utils';
 
 type ChildrenProps = {
   isLoading: boolean;
@@ -24,15 +25,23 @@ type Props = {
 };
 
 class VitalsQuery extends React.Component<Props> {
-  generateHistogramEventView(vitals: WebVital[]) {
+  generateHistogramEventView(
+    vitals: WebVital[],
+    args: Omit<MeasuresHistogramArgs, 'buckets'> = {}
+  ) {
     const {eventView} = this.props;
+
+    const histogramColumn = getMeasuresHistogramFunction(vitals, {
+      buckets: NUM_BUCKETS,
+      ...args,
+    });
 
     return EventView.fromSavedQuery({
       id: '',
       name: '',
       version: 2,
-      fields: [`measuresHistogram(${NUM_BUCKETS}, ${vitals.join(', ')})`, 'count()'],
-      orderby: getMeasuresHistogramResultsKey(vitals),
+      fields: [histogramColumn, 'count()'],
+      orderby: getAggregateAlias(histogramColumn),
       projects: eventView.project,
       range: eventView.statsPeriod,
       query: eventView.query,
@@ -67,7 +76,7 @@ class VitalsQuery extends React.Component<Props> {
       }, {}) as Record<WebVital, number | null>;
     }
 
-    const summaryData = summaryResults.tableData.data;
+    const summaryData = summaryResults?.tableData?.data ?? [];
     return Object.values(WebVital).reduce((summary, vital) => {
       const percentileString = PERCENTILE.toString().replace('.', '_');
       const vitalKey = vital.replace('.', '_');
@@ -92,8 +101,12 @@ class VitalsQuery extends React.Component<Props> {
       return histograms;
     }
 
-    durationHistogramResults.tableData.data.forEach(row => {
-      const key = getMeasuresHistogramResultsKey(DURATION_VITALS);
+    (durationHistogramResults?.tableData?.data ?? []).forEach(row => {
+      const histogramColumn = getMeasuresHistogramFunction(DURATION_VITALS, {
+        max: 1000,
+        buckets: NUM_BUCKETS,
+      });
+      const key = getAggregateAlias(histogramColumn);
       const histogram = row[key];
       Object.values(DURATION_VITALS).forEach(vital => {
         histograms[vital].push({
@@ -103,8 +116,14 @@ class VitalsQuery extends React.Component<Props> {
       });
     });
 
-    clsHistogramResults.tableData.data.forEach(row => {
-      const key = getMeasuresHistogramResultsKey([WebVital.CLS]);
+    (clsHistogramResults?.tableData?.data ?? []).forEach(row => {
+      const histogramColumn = getMeasuresHistogramFunction([WebVital.CLS], {
+        buckets: NUM_BUCKETS,
+        min: 0,
+        max: 1,
+        precision: 2,
+      });
+      const key = getAggregateAlias(histogramColumn);
       histograms[WebVital.CLS].push({
         histogram: row[key],
         count: row[`${key}_${WebVital.CLS.replace('.', '_')}`],
@@ -129,7 +148,9 @@ class VitalsQuery extends React.Component<Props> {
             <DiscoverQuery
               location={location}
               orgSlug={organization.slug}
-              eventView={this.generateHistogramEventView(DURATION_VITALS)}
+              eventView={this.generateHistogramEventView(DURATION_VITALS, {
+                max: 1000,
+              })}
               limit={100}
             >
               {durationHistogramResults => {
@@ -137,7 +158,11 @@ class VitalsQuery extends React.Component<Props> {
                   <DiscoverQuery
                     location={location}
                     orgSlug={organization.slug}
-                    eventView={this.generateHistogramEventView([WebVital.CLS])}
+                    eventView={this.generateHistogramEventView([WebVital.CLS], {
+                      min: 0,
+                      max: 1,
+                      precision: 2,
+                    })}
                     limit={100}
                   >
                     {clsHistogramResults => {

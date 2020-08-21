@@ -11,7 +11,8 @@ import {
   // IconNetwork,
   IconWindow,
   // IconImage,
-} from 'app/icons'; import space from 'app/styles/space';
+} from 'app/icons';
+import space from 'app/styles/space';
 import {Organization} from 'app/types';
 import EventView from 'app/utils/discover/eventView';
 import {generateEventSlug} from 'app/utils/discover/urls';
@@ -19,15 +20,9 @@ import BaselineQuery from 'app/views/performance/transactionSummary/baselineQuer
 import {getTransactionDetailsUrl} from 'app/views/performance/utils';
 import {formatPercentage} from 'app/utils/formatters';
 
-import {
-  Card,
-  CardSummary,
-  CardSectionHeading,
-  StatNumber,
-  Description,
-  formatDuration,
-} from './styles';
+import {Card, CardSummary, CardSectionHeading, StatNumber, Description} from './styles';
 import TagQuery from './tagQuery';
+import {formatDuration} from './utils';
 
 type Props = {
   organization: Organization;

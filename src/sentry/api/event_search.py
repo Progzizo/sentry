@@ -1637,7 +1637,7 @@ def resolve_function(field, match=None, params=None):
             )
         elif args_count > total_args_count:
             raise InvalidSearchQuery(
-                u"{}: expected at most {:g} arguments".format(field, required_args_count)
+                u"{}: expected at most {:g} arguments".format(field, total_args_count)
             )
 
     columns_with_defaults = [col for col in columns]

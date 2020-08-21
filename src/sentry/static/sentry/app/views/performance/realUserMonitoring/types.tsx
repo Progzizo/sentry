@@ -1,3 +1,10 @@
+export type MeasuresHistogramArgs = {
+  buckets: number;
+  max?: number;
+  min?: number;
+  precision?: number;
+};
+
 export type HistogramData = {
   histogram: number;
   count: number;

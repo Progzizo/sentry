@@ -1,7 +1,6 @@
 import {formatFloat, getDuration} from 'app/utils/formatters';
 
-import {NUM_BUCKETS} from './constants';
-import {WebVital} from './types';
+import {MeasuresHistogramArgs, WebVital} from './types';
 
 export function formatNumber(num: number, places: number = 2): string {
   return formatFloat(num, places).toLocaleString();
@@ -13,7 +12,13 @@ export function formatDuration(duration: number): string {
     : getDuration(duration / 1000, 2, true);
 }
 
-export function getMeasuresHistogramResultsKey(vitals: WebVital[]) {
-  const vitalsKey = vitals.join('_').replace(/\./g, '_');
-  return `measuresHistogram_${NUM_BUCKETS}_${vitalsKey}`;
+export function getMeasuresHistogramFunction(
+  vitals: WebVital[],
+  {buckets, max, min, precision}: MeasuresHistogramArgs
+) {
+  const vitalsStr = vitals.join(', ');
+  const maxStr = max === undefined ? 'null' : max.toString();
+  const minStr = min === undefined ? 'null' : min.toString();
+  const precisionStr = precision === undefined ? 'null' : precision.toString();
+  return `measuresHistogram(${buckets}, ${minStr}, ${maxStr}, ${precisionStr}, ${vitalsStr})`;
 }

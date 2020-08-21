@@ -245,14 +245,16 @@ def find_measures_histogram_buckets(field, params, conditions):
 
     columns = [c.strip() for c in match.group("columns").split(",") if len(c.strip()) > 0]
 
-    if len(columns) < 2:
+    if len(columns) < 5:
         raise InvalidSearchQuery(
-            u"measuresHistogram(...) expects at least 2 column arguments, received {:g} arguments".format(
+            u"measuresHistogram(...) expects at least 5 column arguments, received {:g} arguments".format(
                 len(columns)
             )
         )
 
-    for column in columns[1:]:
+    first_measures_column = 4
+
+    for column in columns[first_measures_column:]:
         # TODO(tonyx): this should be renamed to match the final implementation
         if not column.startswith("metrics."):
             raise InvalidSearchQuery(
@@ -268,101 +270,135 @@ def find_measures_histogram_buckets(field, params, conditions):
             u"measuresHistogram(...) requires a bucket value between 1 and 500, not {}".format(columns[0])
         )
 
-    function_alias = "_".join(columns[1:]).replace(".", "_")
-    measures_alias = u"key_{}".format(function_alias)
-    max_alias = u"max_{}".format(function_alias)
-    min_alias = u"min_{}".format(function_alias)
+    try:
+        bucket_min = None if columns[1] == 'null' else float(columns[1])
+    except Exception:
+        raise InvalidSearchQuery(
+            u"measuresHistogram(...) requires a min integer value, not {}".format(columns[1])
+        )
 
-    conditions = deepcopy(conditions) if conditions else []
-    for cond in conditions:
-        if len(cond) == 3 and (cond[0], cond[1], cond[2]) == ("event.type", "=", "transaction"):
-            break
-    else:
-        conditions.append(["event.type", "=", "transaction"])
-    snuba_filter = eventstore.Filter(conditions=conditions)
-    translated_args, _ = resolve_discover_aliases(snuba_filter)
-    formated_cols = ["'{}'".format(col) for col in columns[1:]]
+    try:
+        bucket_max = None if columns[2] == 'null' else float(columns[2])
+    except Exception:
+        raise InvalidSearchQuery(
+            u"measuresHistogram(...) requires a max integer value, not {}".format(columns[2])
+        )
 
-    selected_columns = [
-        [
-            "arrayJoin",
-            [
-                "arrayFilter",
-                [
-                    "lambda",
-                    [
-                        "tuple", ["key"],
-                        "in", ["key", "tuple", formated_cols],
-                    ],
-                    # TODO(tonyx): use the final measures column
-                    "tags.key",
-                ],
-            ],
-            measures_alias,
-        ],
-    ]
-    # TODO(tonyx): remove the toFloat32OrNull and use the final measures column
-    aggregations = [
-        [
-            "max",
-            [
-                [
-                    "toFloat32OrNull",
-                    [
-                        "arrayElement",
-                        [
-                            "tags.value",
-                            "indexOf", ["tags.key", measures_alias],
-                        ],
-                    ],
-                ],
-            ],
-            max_alias,
-        ],
-        [
-            "min",
-            [
-                [
-                    "toFloat32OrNull",
-                    [
-                        "arrayElement",
-                        [
-                            "tags.value",
-                            "indexOf", ["tags.key", measures_alias],
-                        ],
-                    ],
-                ],
-            ],
-            min_alias,
-        ]
-    ]
+    try:
+        precision = 0 if columns[3] == 'null' else int(columns[3])
+        if precision < 0 or precision > 2:
+            raise Exception()
+        precision_multiplier = 10 ** precision
+    except Exception:
+        raise InvalidSearchQuery(
+            u"measuresHistogram(...) requires a precision value between 0 and 2, not {}".format(columns[3])
+        )
 
-    results = raw_query(
-        selected_columns=selected_columns,
-        filter_keys={"project_id": params.get("project_id")},
-        start=params.get("start"),
-        end=params.get("end"),
-        dataset=Dataset.Discover,
-        conditions=translated_args.conditions,
-        aggregations=aggregations,
-        groupby=[measures_alias],
-    )
-
-    array_join_str_literals_column = "array_join_str_literals({})".format(", ".join(columns[1:]))
+    array_join_str_literals_column = "array_join_str_literals({})".format(", ".join(columns[first_measures_column:]))
     array_join_str_literals_alias = get_function_alias(array_join_str_literals_column)
 
-    if len(results["data"]) == 0:
-        # If there are no measurements, so no max duration, return one empty bucket
-        return array_join_str_literals_column, "measuresHistogram(1, 1, 0, 1, {})".format(array_join_str_literals_alias)
+    if bucket_min is None or bucket_max is None:
+        function_alias = "_".join(columns[1:]).replace(".", "_")
+        measures_alias = u"key_{}".format(function_alias)
+        max_alias = u"max_{}".format(function_alias)
+        min_alias = u"min_{}".format(function_alias)
 
-    bucket_min, bucket_max = float("inf"), -float("inf")
-    for data in results["data"]:
-        if data[max_alias] > bucket_max:
-            bucket_max = data[max_alias]
-        if data[min_alias] < bucket_min:
-            bucket_min = data[min_alias]
+        conditions = deepcopy(conditions) if conditions else []
+        for cond in conditions:
+            if len(cond) == 3 and (cond[0], cond[1], cond[2]) == ("event.type", "=", "transaction"):
+                break
+        else:
+            conditions.append(["event.type", "=", "transaction"])
+        snuba_filter = eventstore.Filter(conditions=conditions)
+        translated_args, _ = resolve_discover_aliases(snuba_filter)
+        formatted_cols = ["'{}'".format(col) for col in columns[first_measures_column:]]
 
-    bucket_size = ceil((bucket_max - bucket_min) / float(num_buckets))
+        selected_columns = [
+            [
+                "arrayJoin",
+                [
+                    "arrayFilter",
+                    [
+                        "lambda",
+                        [
+                            "tuple", ["key"],
+                            "in", ["key", "tuple", formatted_cols],
+                        ],
+                        # TODO(tonyx): use the final measures column
+                        "tags.key",
+                    ],
+                ],
+                measures_alias,
+            ],
+        ]
+
+        # TODO(tonyx): remove the toFloat32OrNull and use the final measures column
+        aggregations = []
+
+        if bucket_max is None:
+            aggregations.append([
+                "max",
+                [
+                    [
+                        "toFloat32OrNull",
+                        [
+                            "arrayElement",
+                            [
+                                "tags.value",
+                                "indexOf", ["tags.key", measures_alias],
+                            ],
+                        ],
+                    ],
+                ],
+                max_alias,
+            ])
+
+        if bucket_min is None:
+            aggregations.append([
+                "min",
+                [
+                    [
+                        "toFloat32OrNull",
+                        [
+                            "arrayElement",
+                            [
+                                "tags.value",
+                                "indexOf", ["tags.key", measures_alias],
+                            ],
+                        ],
+                    ],
+                ],
+                min_alias,
+            ])
+
+        results = raw_query(
+            selected_columns=selected_columns,
+            filter_keys={"project_id": params.get("project_id")},
+            start=params.get("start"),
+            end=params.get("end"),
+            dataset=Dataset.Discover,
+            conditions=translated_args.conditions,
+            aggregations=aggregations,
+            groupby=[measures_alias],
+        )
+
+        if len(results["data"]) == 0:
+            # If there are no measurements, so no max duration, return one empty bucket
+            return array_join_str_literals_column, "measuresHistogram(1, 1, 0, 0, 1, {})".format(array_join_str_literals_alias)
+
+        if bucket_min == None:
+            bucket_min = float("inf")
+            for data in results["data"]:
+                if data[min_alias] < bucket_min:
+                    bucket_min = data[min_alias]
+
+        if bucket_max == None:
+            bucket_max = -float("inf")
+            for data in results["data"]:
+                if data[max_alias] > bucket_max:
+                    bucket_max = data[max_alias]
+
+    bucket_size = ceil(precision_multiplier * (bucket_max - bucket_min) / float(num_buckets))
     if bucket_size == 0.0:
         bucket_size = 1.0
 
@@ -370,17 +406,8 @@ def find_measures_histogram_buckets(field, params, conditions):
     # zerofill correctly.
     offset = floor(bucket_min / bucket_size) * bucket_size
 
-    precision = 0
-
-    if columns[1:] == ['metrics.cls']: 
-        bucket_min = 0
-        bucket_max = 1
-        bucket_size = 2
-        precision = 2
-        offset = 0
-
     measures_histogram_column = "measuresHistogram({:g}, {:.0f}, {:.0f}, {:.0f}, {:.0f}, {})".format(
-        num_buckets, bucket_size, offset, precision, 10 ** precision, array_join_str_literals_alias
+        num_buckets, bucket_size, offset, precision, precision_multiplier, array_join_str_literals_alias
     )
     return (array_join_str_literals_column, measures_histogram_column)
 
@@ -443,7 +470,7 @@ def flatten_and_zerofill_measures_histogram(results, column_meta, sentry_functio
         raise Exception(u"{} is not a valid histogram alias".format(snuba_function_alias))
 
     measure_keys = set()
-    sentry_alias_parts = sentry_function_alias.split("_")[2:]
+    sentry_alias_parts = sentry_function_alias.split("_")[5:]
     assert len(sentry_alias_parts) % 2 == 0
     for i in range(0, len(sentry_alias_parts), 2):
         measure_keys.add(
@@ -668,10 +695,8 @@ def query(
                                 "-" if ordering.startswith("-") else "", snuba_name
                             )
                             orderby[i] = ordering
-
             break
 
-        # TODO(tonyx): needs a better name as it only supports measurements
         if col.startswith("measuresHistogram("):
             with sentry_sdk.start_span(
                 op="discover.discover", description="query.measuresHistogram_calculation"

@@ -97,7 +97,7 @@ const VITAL_TYPE: Record<WebVital, 'number' | 'duration'> = {
   [WebVital.LCP]: 'duration',
   [WebVital.FID]: 'duration',
   [WebVital.CLS]: 'number',
-}
+};
 
 type VitalProps = {
   isLoading: boolean;
@@ -131,7 +131,7 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
         <Indicator color={colors[0]} />
         <CardSectionHeading>
           {VITAL_LONG_NAME[vital]}
-          {summary === null ? null : summary < failureThreshold ? (
+          {isLoading || error || summary === null ? null : summary < failureThreshold ? (
             <StyledTag color={theme.purple500}>{t('pass')}</StyledTag>
           ) : (
             <StyledTag color={theme.red400}>{t('fail')}</StyledTag>
@@ -411,7 +411,7 @@ class VitalCard extends React.Component<VitalProps, VitalState> {
       });
     }
 
-    if (topY === null || rightX === null) {
+    if (failureThresholdX === null || topY === null || rightX === null) {
       delete transformedSeries.markPoint;
     } else {
       transformedSeries.markPoint = MarkPoint({
