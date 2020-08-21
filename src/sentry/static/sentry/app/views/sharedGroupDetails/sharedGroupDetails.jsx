@@ -19,6 +19,7 @@ const SharedGroupDetails = createReactClass({
   displayName: 'SharedGroupDetails',
 
   propTypes: {
+    location: PropTypes.object.isRequired,
     api: PropTypes.object,
   },
 
@@ -125,6 +126,8 @@ const SharedGroupDetails = createReactClass({
                     group={group}
                     event={evt}
                     project={group.project}
+                    location={this.props.location}
+                    origin="share"
                     isShare
                   />
                 </Container>

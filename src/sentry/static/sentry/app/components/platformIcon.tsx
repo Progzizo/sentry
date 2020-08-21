@@ -85,6 +85,7 @@ const PlatformIcon = ({platform, size, ...props}: Props) => {
         platform={platform}
         width={width}
         height={height}
+        monoTone
         {...props}
       />
     );
